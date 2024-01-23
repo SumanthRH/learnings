@@ -25,6 +25,8 @@ class Environment:
 
     def reset(self):
         self.seeker = (0,0)
+        # random_pos = environment.observation_space.sample()
+        # self.seeker = (random_pos // 5, random_pos % 5)
         return self.get_observation()
 
     def get_observation(self):
@@ -116,14 +118,25 @@ def train_policy(env, num_episodes=10000, weight=0.1, discount_factor=0.9):
         update_policy(policy, experiences, weight, discount_factor)
     return policy
 
+def evaluate_policy(env, policy, num_episodes=10): 
+    """Evaluate a trained policy through rollouts."""
+    simulation = Simulation(env)
+    steps = 0
+    for _ in range(num_episodes):
+        experiences = simulation.rollout(policy, render=True, explore=False)
+        steps += len(experiences)
+
+    print(f"{steps / num_episodes} steps on average "
+              f"for a total of {num_episodes} episodes.")
+    return steps/ num_episodes
+
+
 if __name__ == "__main__":
     import time
     environment = Environment()
     untrained_policy = Policy(environment)
-    sim = Simulation(environment)
-    exp = sim.rollout(untrained_policy, render=True, epsilon=1.0)
-    for row in untrained_policy.state_action_table:
-        print(row)
+    trained_policy = train_policy(environment)
+    evaluate_policy(environment, trained_policy)
     # random_pos = environment.observation_space.sample()
     # environment.seeker = (random_pos // 5, random_pos % 5)
     # while not environment.is_done():
