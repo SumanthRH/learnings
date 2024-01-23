@@ -14,8 +14,14 @@ I'm not too sure how folks verify their installations, but this is how "targets"
 
 # Grafana
 `brew install grafana`
+
+Once this is done, let's configure Grafana's config to work with Ray. The default config file path for me is `/opt/homebrew/etc/grafana/grafana.ini`. You need to copy the contents in Ray's Grafana config to this path:
+`cp /tmp/ray/session_latest/metrics/grafana/grafana.ini /opt/homebrew/etc/grafana/grafana.ini`
+
 Start grafana locally with 
 `brew services start grafana`. 
 Now, grafana should be running on `localhost:3000`
 The default user name and password is `admin/admin`. You will be prompted to change your password after the first time.
 Once you log in, make sure to update the profile details to your actual Grafana account.
+
+With this, you should finally be able to see Ray Metrics!
