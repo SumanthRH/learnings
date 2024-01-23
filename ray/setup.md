@@ -11,3 +11,8 @@ Prometheus is displayed at http://localhost:9090 . I still need to figure out wh
 
 # Grafana
 `brew install grafana`
+Start grafana locally with 
+`brew services start grafana`. 
+Now, grafana should be running on `localhost:3000`
+The default user name and password is `admin/admin`. You will be prompted to change your password after the first time.
+Once you log in, make sure to update the profile details to your actual Grafana account.
