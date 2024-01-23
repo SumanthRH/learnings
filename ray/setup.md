@@ -3,10 +3,13 @@ You need Prometheus and Grafana to visualize time series data in the Ray dashboa
 
 # Prometheus
 `brew install prometheus`
-After installation, I can do:
-`prometheus --config.file=/tmp/ray/session_latest/metrics/prometheus/prometheus.yml`
+After installation, I need to point to Ray's prometheus file. On Mac, this step is a little different. You need to go into the default prometheus config file - for me this was /opt/homebrew/etc/prometheus.args and then add Ray's config file path `-config.file /tmp/ray/session_latest/metrics/prometheus/prometheus.yml` .
+
 
 Prometheus is displayed at http://localhost:9090 . I still need to figure out why Grafana integeration is needed. But this works for now. 
+
+I'm not too sure how folks verify their installations, but this is how "targets" looks like for me (i have a Ray instance running):
+![Ray Prometheus](prometheus_ray.png)
 
 
 # Grafana
