@@ -160,11 +160,4 @@ if __name__ == "__main__":
     untrained_policy = Policy(environment)
     trained_policy = train_policy_parallel(environment)
     evaluate_policy(environment, trained_policy)
-    # random_pos = environment.observation_space.sample()
-    # environment.seeker = (random_pos // 5, random_pos % 5)
-    # while not environment.is_done():
-    #     random_action = environment.action_space.sample()
-    #     environment.step(random_action)
-    #     time.sleep(0.1)
-    #     environment.render()
         
