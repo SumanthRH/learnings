@@ -3,6 +3,8 @@
 import random
 import os
 import numpy as np
+import ray 
+ray.init()
 
 class Discrete:
     def __init__(self, num_actions: int):
@@ -130,12 +132,33 @@ def evaluate_policy(env, policy, num_episodes=10):
               f"for a total of {num_episodes} episodes.")
     return steps/ num_episodes
 
+@ray.remote
+class SimulationActor(Simulation): 
+    """Ray actor for a Simulation.""" 
+    def __init__(self):
+            env = Environment()
+            super().__init__(env)
+
+
+
+def train_policy_parallel(env, num_episodes=1000, num_simulations=4): 
+    """Parallel policy training function."""
+    policy = Policy(env)
+    simulations = [SimulationActor.remote() for _ in range(num_simulations)]
+    policy_ref = ray.put(policy) 
+    for _ in range(num_episodes):
+        experiences = [sim.rollout.remote(policy_ref) for sim in simulations]
+        while len(experiences) > 0:
+            finished, experiences = ray.wait(experiences) 
+            for xp in ray.get(finished):
+                update_policy(policy, xp) 
+    return policy
 
 if __name__ == "__main__":
     import time
     environment = Environment()
     untrained_policy = Policy(environment)
-    trained_policy = train_policy(environment)
+    trained_policy = train_policy_parallel(environment)
     evaluate_policy(environment, trained_policy)
     # random_pos = environment.observation_space.sample()
     # environment.seeker = (random_pos // 5, random_pos % 5)
