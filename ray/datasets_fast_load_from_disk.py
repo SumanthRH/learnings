@@ -37,11 +37,11 @@ def datasets_fast_load_from_disk(cache_path: str) -> datasets.Dataset:
     with open(dataset_info_path, encoding="utf-8") as dataset_info_file:
         dataset_info = datasets.DatasetInfo.from_dict(json.load(dataset_info_file))
 
-    dataset_state_path = os.path.join(cache_path, "state.json")
-    with open(dataset_state_path, encoding="utf-8") as state_file:
-        state = json.load(state_file)
+    # dataset_state_path = os.path.join(cache_path, "state.json")
+    # with open(dataset_state_path, encoding="utf-8") as state_file:
+        # state = json.load(state_file)
 
-    files = glob.glob(os.path.join(cache_path, "*.parquet"))
+    files = glob.glob(os.path.join(cache_path, "*.arrow"))
     files = sorted(files)
     num_workers = 16
     ds_tables = load_dataset_tables(
@@ -50,17 +50,20 @@ def datasets_fast_load_from_disk(cache_path: str) -> datasets.Dataset:
     )
     arrow_table = datasets.table.concat_tables(ds_tables)
 
-    split = state["_split"]
+    # split = state["_split"]
+    split = None
     split = datasets.splits.Split(split) if split is not None else split
 
     return datasets.Dataset(
         arrow_table=arrow_table,
         info=dataset_info,
         split=split,
-        fingerprint=state["_fingerprint"],
+        # fingerprint=state["_fingerprint"],
     )
+
 
 if __name__ == "__main__":
     import time
     start = time.time()
-    dataset = datasets_fast_load_from_disk(cache_path="./")
+    dataset = datasets_fast_load_from_disk(cache_path="/Users/sumanthrh/.cache/huggingface/datasets/glue/wnli/0.0.0/4d91bceb80e222ba/")
+    end = time.time()
