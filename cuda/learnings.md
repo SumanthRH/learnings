@@ -99,4 +99,7 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 
 ## Chapter 4
 - This one's all about the GPU architecture and reasoning about CUDA code performance.
+
 ![Alt text](images/gpu_arch.png)
+
+- Each Streaming Multiprocessor(SM) has several processing units called streaming processors or CUDA cores. 
