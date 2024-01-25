@@ -70,3 +70,16 @@ intensity of O(N).
     - With the largeest stride size between two reads, you get a speed of 111 GB/sec vs 1418 GB/sec (only 8% of peak bandwidth)
     - Thus, the biggest optimization you can do is handling memory access patterns. No other optimization comes close.
 - "The reason you're using a GPU is for performance. High performance means being able to use all the GPU resources you can, which means paying attention to memory access patterns"
+
+# PMPP Book
+## Chapter 2
+![Alt text](ch2_terms.png)
+- BUilt-in variables accessible by threads: “threadIdx,” “blockIdx,”, "gridDim", “blockDim.”
+    - Can be multidimensional when dealing with multidimensional data.
+    - Recall that CUDA is meant fo SIMD processing - so you'd use as many dimensions as needed by your data.
+- The execution configuration parameters are given between the “<<<” and “>>>” (triple chevrons)
+- CUDA code has a number of extensions to C. Thus, it can only be compiled by a compiler like NVCC.
+- The host code gets compiled with the host's standard C/C++ compilers, while the device code, which is marked with CUDA keywords that designate CUDA kernels and their associated helper functions and data structures, is compiled by NVCC into virtual binary files called PTX files.
+
+## Chapter 3
+- A grid is a three-dimensional (3D) array of blocks, and each block is a 3D array of threads. 
