@@ -47,9 +47,37 @@ There's a lot going on in the about picture. I frankly prefer the simple list of
 - <u>Shared memory used by large Ray objects</u>: This is shared memory used when you do a `ray.put` call, or those returned by a Ray task!
     - **Important:** The return values of Ray tasks are stored in the object store. Contrast this with regular local memory that is used by a task, which gets allocated on the heap
     - **Garbage collection:** We were just discussing about garbage collection on heap/stack. Well, how does garbage collection work for Ray's shared memory object store? Ray does this for you via reference counts (much like Python's garbage collector)
-- <u>Heap memory used by small Ray objects</u>:
+- <u>Heap memory used by small Ray objects</u>: This is for objects returned by a Ray task! If the object is small enough, it will be stored in the heap memory of the "owner's" object store (ownership to be discussed soon: for now, just think of this as the object store local only to the worker that called/spawned this other worker).
+- <u>Heap memory used by Ray metadata</u>:  This is memory allocated by Ray to manage metadata for the application. Memory for the GCS, for Raylet meta data, etc come under this category.
 
-# Major anti-pattern
+After reading all of this, go back to the image of the memory model. Things will make a lot more sense now :)
+
+# Lifetime of a Task
+The process that submits a task is considered to be the owner of the result and is responsible for acquiring resources from a raylet to execute the task.
+
+let's say the Driver process submits Task A (gets taken up by a worker, Worker 1) which submits Task B (Worker 2). The Driver is the _owner_ for the result of Task A, and similarity Worker 1 is the owner for Task B.
+
+The owner can pass normal Python objects as task arguments. If a task argument’s value is small, it is copied directly from the owner’s in-process object store into the task specification, where it can be referenced by the executing worker.
+
+## Major anti-pattern: passing large values directly as arguments
+If a task’s argument is large, the owner first calls `ray.put()` on the object under the hood - this stores the object in the object store, and the ObjectRef is passed automatically. Note that, if the same owner spawns 4 workers, and passed a huge argument in this fashion, you end up with 4 copies of the list! Ray does not perform deduplication on it's own! Thus, if you're spawing multiple workers, put the argument in the object store and pass by reference!
+
+# Lifetime of an Object
+
+![Alt text](ray_object.png)
+
+The owner of an object is the worker that created the initial `ObjectRef`, by submitting the creating task or calling `ray.put`.Each worker stores a ref count for the objects that it owns.
+
+There are details on how Ray manages ObjectRefs but I believe these can be skipped since you won't be doing garbage collection yourself
+
+Let's move to how these ObjectRef's are resolved (like dereferencing). There are two ways:
+- Calling `ray.get` on an ObjectRef
+- Passing an `ObjectRef` as an argument to a task.
+
+An interesting caveat:
+> Note that if the `ObjectRef` is contained within a data structure (e.g., Python list), or otherwise serialized within an argument, it will not be resolved. This allows passing references through tasks without blocking on their resolution.
+
+TODO: Investigate the caveat and add an example
 
 # Actors
 When an actor is created in Python, the creating worker builds a special task known as an actor creation task that runs the actor’s Python constructor.
