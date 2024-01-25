@@ -96,3 +96,7 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 - The syntax for 1D blocks and grids is special -  you can just provide the value for that dimension like above.    
 - ONe small problem with multidimensional (take 2D here) arrays - CUDA C is based on classic ANSI C, where you need to know the number of columns beforehand i.e at compile time. However, with dynamically allocated arrays, what we're looking for is this flexibility in not specifying number of columns. Thus, we rely on single-dimensional indexing and CUDA leaves the translation of 2D / n-D indices into the 1D equivalent to the programmers. 
     - TL;DR: In your CUDA code, you'll need to always use the linearized 1D index for your n-D arrays.
+
+## Chapter 4
+- This one's all about the GPU architecture and reasoning about CUDA code performance.
+![Alt text](images/gpu_arch.png)
