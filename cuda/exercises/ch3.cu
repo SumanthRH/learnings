@@ -57,3 +57,8 @@ void matVec(float *B_d, float *c_d, float *A_d){
     dim3 dimBlock(16, 1, 1);
     MatrixVectorMultiply<<< dimGrid, dimBlock >>>(B_d, c_d, A_d, size);
 }
+
+// Q 3: threads per bloc: 16x32
+// Q 3: number of threadsin grid = 315x181
+// Q 4: row major order 20*400 + 10 = 8010. column major order = 10*500 + 20 = 5020.
+// Q 5: row major order 10*120,000  + 20*300 + 5
