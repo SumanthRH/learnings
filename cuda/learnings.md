@@ -73,7 +73,9 @@ intensity of O(N).
 
 # PMPP Book
 ## Chapter 2
-![Alt text](ch2_terms.png)
+
+![Alt text](images/ch2_terms.png)
+
 - BUilt-in variables accessible by threads: “threadIdx,” “blockIdx,”, "gridDim", “blockDim.”
     - Can be multidimensional when dealing with multidimensional data.
     - Recall that CUDA is meant fo SIMD processing - so you'd use as many dimensions as needed by your data.
@@ -83,3 +85,12 @@ intensity of O(N).
 
 ## Chapter 3
 - A grid is a three-dimensional (3D) array of blocks, and each block is a 3D array of threads. 
+- Execution parameters: Say <<<256, 128>>>> The first execution configuration parameter specifies the dimensions of the grid in number of blocks (256 blocks), while the second specifies dimensions of each block in number of threads. Each parameter has the type `dim3`.
+- You can do stuff like 
+
+```
+dim3 dimGrid(32, 1, 1); 
+dim3 dimBlock(128, 1, 1); 
+myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
+```
+- The syntax for 1D blocks and grids is special -  you can just provide the value for that dimension like above.
