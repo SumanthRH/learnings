@@ -17,6 +17,7 @@ This is a summary of my learnings on Ray. A lot of the wordings here are borrowe
 - *Object* - An application value. These are values that are returned by a task or created through `ray.put`. Objects are immutable! 
     - Ray also doesn't handle deduplication. More on this later.
 - *Actor* - a stateful worker process (an instance of a `@ray.remote` class). Actor tasks must be submitted with a handle, or a Python reference to a specific instance of an actor, and can modify the actor’s internal state during execution.
+    - An actor is still just another worker process! 
 - Driver - The program root, or the “main” program. This is the code that runs `ray.init()`
     - TODO: What about a multi-node setup? I'm guessing ray.init is run only by the head node?
 - Job - The collection of tasks, objects, and actors originating (recursively) from the same driver, and their runtime environment. There is a 1:1 mapping between drivers and jobs.
@@ -60,7 +61,7 @@ let's say the Driver process submits Task A (gets taken up by a worker, Worker 1
 The owner can pass normal Python objects as task arguments. If a task argument’s value is small, it is copied directly from the owner’s in-process object store into the task specification, where it can be referenced by the executing worker.
 
 ## Major anti-pattern: passing large values directly as arguments
-If a task’s argument is large, the owner first calls `ray.put()` on the object under the hood - this stores the object in the object store, and the ObjectRef is passed automatically. Note that, if the same owner spawns 4 workers, and passed a huge argument in this fashion, you end up with 4 copies of the list! Ray does not perform deduplication on it's own! Thus, if you're spawing multiple workers, put the argument in the object store and pass by reference!
+If a task’s argument is large, the owner first calls `ray.put()` on the object under the hood - this stores the object in the object store, and the ObjectRef is passed automatically. Note that, if the same owner spawns 4 workers, and passed a huge argument in this fashion, you end up with 4 copies of the list! Ray does not perform deduplication on it's own! Thus, if you're spawing multiplel workers, put the argument in the object store and pass by reference!
 
 # Lifetime of an Object
 
