@@ -1,6 +1,10 @@
 # CUDA Practice Dump
 A public facing CUDA practice dump. It's time to go [CUDA MODE](https://github.com/cuda-mode)
 
+# Setup
+
+Head over to [SETUP.md](setup.md)
+
 # TODO
 I'm following resources linked in the [resource-stream](https://github.com/cuda-mode/resource-stream)
 - [x] How GPU Computing Works | GTC 2021
