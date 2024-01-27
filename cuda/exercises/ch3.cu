@@ -42,11 +42,11 @@ void MatrixVectorMultiply(float *B, float *c, float *A, int size)
 {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if(i < size){
-    for(int col=0; col < Width; col++){
-        float val = 0;
-        val += B[row*Width + col] * c[col];
+    float val = 0;
+    for(int col=0; col < size; col++){
+        val += B[i*size + col] * c[col];
     }
-    A[row*Width + col] = val;
+    A[i] = val;
   }
   
 }
