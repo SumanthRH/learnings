@@ -93,3 +93,4 @@ Similar to tasks, they return futures, are submitted directly to the actor proce
 
 ## Failure Model
 - All nodes are assigned a unique identifier and communicate with each other through heartbeats.
+
