@@ -115,3 +115,10 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 ### Warps and SIMD hardware 
 - This concerns *thread scheduling* - how are threads in a block executed at a hardware level?
 - Each block is divided into 32-thread units called *warps*.
+- If the block size is not divisible by 32, then the block is padded with inactive threads.
+- Each SM is divided into *processing blocks*, where a group of (say) 8 cores share the same instruction fetch/dispatch unit. Threads in the same warp are assigned to the same processing block (or blocks), which fetch the instruction for the warp and the cores execute that instruction for all the threads in a warp. (SIMD)
+- One advantage of SIMD is that the cost of the control hardware (eg. instruction fetch/dispatch unit) is shared across multiple processing units (cores).
+
+![Alt text](comp_arch_simd.png) 
+*Figure depicts a modified von Neumann archictecture for the Single-Instruction-Multiple-Data mode used in GPUs. The Control Unit loads the same instruction such as `add r1, r2, r3` for all the different processing units. The difference between processing units is that the registers contain different data.*
+
