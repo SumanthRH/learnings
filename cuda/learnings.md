@@ -75,7 +75,7 @@ intensity of O(N).
 ## Chapter 2
 
 ![Alt text](images/ch2_terms.png)
-
+- CPUs are designed to minimize the latency of instruction execution while GPUs are designed to maximize the throughput of executing instructions.
 - BUilt-in variables accessible by threads: “threadIdx,” “blockIdx,”, "gridDim", “blockDim.”
     - Can be multidimensional when dealing with multidimensional data.
     - Recall that CUDA is meant fo SIMD processing - so you'd use as many dimensions as needed by your data.
@@ -103,3 +103,15 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 ![Alt text](images/gpu_arch.png)
 
 - Each Streaming Multiprocessor(SM) has several processing units called streaming processors or CUDA cores. 
+- When a grid of threads is launched,  threads are assigned to a given SM block by block. CUDA ensures that an entire block is assigned to only one SM. Note that multiple blocks can still be assigned to the same SM. 
+- Threads in the same block can interact with each other in special ways - through barrier synchronization and through shared memory. 
+
+### Barrier synchronization
+- CUDA provides a special `__syncthreads()` function which enables threads in the same block to sync with each other after performing some computations. It helps to coordinate parallel activities in a block.
+- If a `__syncthreads()` statement is present, it MUST be executed by ALL threads in a block. A `__syncthreads()` statement on Line 10 will be different from one on Line 20. Thus, if you use `__syncthreads()` in a if-then-else block, then the conditions of that if statement must resolve to the same value for ALL threads in a block. Otherwise, you might have a deadlock or other undefined behaviour.
+- Not only are all the threads in a block assigned to the same SM, they are assigned simulaneously.
+- Different blocks of threads can be executed in any order, each on any SM. You cannot synchronize across blocks!
+- The CUDA runtime system can thus execute a grid of blocks at different speeds! This can be dictated by cost, power and performance requirements. 
+### Warps and SIMD hardware 
+- This concerns *thread scheduling* - how are threads in a block executed at a hardware level?
+- Each block is divided into 32-thread units called *warps*.
