@@ -118,7 +118,32 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 - If the block size is not divisible by 32, then the block is padded with inactive threads.
 - Each SM is divided into *processing blocks*, where a group of (say) 8 cores share the same instruction fetch/dispatch unit. Threads in the same warp are assigned to the same processing block (or blocks), which fetch the instruction for the warp and the cores execute that instruction for all the threads in a warp. (SIMD)
 - One advantage of SIMD is that the cost of the control hardware (eg. instruction fetch/dispatch unit) is shared across multiple processing units (cores).
+- When you think about instruction execution, you should imagine *warps*, not *threads* -  the same instruction is executed for a group of threads. So for example, if a global memory access is needed, then the entire warp is waiting for data for all the 32 threads.
 
 ![Alt text](comp_arch_simd.png) 
 *Figure depicts a modified von Neumann archictecture for the Single-Instruction-Multiple-Data mode used in GPUs. The Control Unit loads the same instruction such as `add r1, r2, r3` for all the different processing units. The difference between processing units is that the registers contain different data.*
 
+### Control divergence
+
+- Sometimes there can be control statements in your CUDA kernel that can lead to different execution paths for different threads. Ex: `if(threadIdx.x < 20)`
+- When threads within a warp have different execution paths - that is, when they exhibit *control divergence* -  then the threads are executed by hardware in multiple passes. For a simple `if` condition like above, this would be two passes as shown in the figure. 
+- This additional time is overhead that can be very costly depending on the % of control divergence seen for the given data. 
+- When you have control divergence in a for loop, some threads can become inactive while others continue until all finish.
+- One reason for using a control construct (like an if condition) that shows control divergence: boundary conditions with data. 
+- Data size might not be divisible by block size, and thus you need a guard (`if(x < n)`) to ensure correctness. Some threads launched will thus be inactive (yet there will be two passes by the hardware. This is why data size will determine how much of an impact this has.)
+
+![Alt text](control_divergence.png) 
+
+### Warp scheduling and latency tolerance
+- Each SM is assigned more warps than it can process at a given instant.
+- When a warp is waiting for a (previously initiated) long-latency operation, like a global memory read, then it is not scheduled and the processing block switches to another warp that is ready to be executed.
+- This mechanism of filling up long latency operations by switching to other threads is called *latency tolerance*.
+- The switching between warps in fact introduces no overhead since the execution states for all the warps are already stored in the hardware registers. This is *zero-overhead switching*. Constrast this to the *context switching* in the classic von Neumann processor. Here, the state of the control unit for the current process has to be saved and the state for the next process has to be loaded which can introduce additional overhead.
+
+### Resource partitioning and occupancy
+- $ \text{Occupancy} = \dfrac{\text{Number of warps assigned}}{\text{Maximum number of warps supported}}$
+- Occupancy can vary because of how execution resources of an SM are *partitioned*. Execution resources include registers, shared memory, thread block slots and thread slots.
+- Consider the A100 GPU. Each SM has a maximum of 32 blocks per SM, 64 warps (2048 threads) per SM. What if the block size is 768? Then the number of blocks an SM can handle is 2 (1536 threads). This means that the occupancy is 1536/2048 = 75\%.
+- There are register resource limitations on occupancy.For an A100, there is a maximum of 65,536 registers per SM. Thus, each thread cannot use more than (65536/2048)= 32 registers for maximum occupancy. But, if each thread needs, say, 64 registers, then you can never achieve maximum occupancy, regardless of block size, etc. the CUDA compiler can perform register spilling to reduce the requirements per thread, but this is at the cost of latency.
+- There's a [CUDA Occupancy Calculator from NVIDIA](https://developer.download.nvidia.com/compute/cuda/4_0/sdk/docs/CUDA_Occupancy_Calculator.xls) that can help calculate the actual number of threads per SM. This is a bit old now though so it might not work for the latest CUDA versions.
+- The amount of resources in each CUDA device SM is mentioned as a part of the *compute capability* of the device. Even seen the number "compute capability 8.0", etc? This is what that means.
