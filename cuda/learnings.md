@@ -147,3 +147,48 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 - There are register resource limitations on occupancy.For an A100, there is a maximum of 65,536 registers per SM. Thus, each thread cannot use more than (65536/2048)= 32 registers for maximum occupancy. But, if each thread needs, say, 64 registers, then you can never achieve maximum occupancy, regardless of block size, etc. the CUDA compiler can perform register spilling to reduce the requirements per thread, but this is at the cost of latency.
 - There's a [CUDA Occupancy Calculator from NVIDIA](https://developer.download.nvidia.com/compute/cuda/4_0/sdk/docs/CUDA_Occupancy_Calculator.xls) that can help calculate the actual number of threads per SM. This is a bit old now though so it might not work for the latest CUDA versions.
 - The amount of resources in each CUDA device SM is mentioned as a part of the *compute capability* of the device. Even seen the number "compute capability 8.0", etc? This is what that means.
+
+## Chapter 5
+- Memory access efficiency: Global memory access has a long latency, and thus even with latency tolerance discussed previously, simple CUDA programs can have traffic congestion (a lot of threads trying to access global memory at the same time).
+- Solution to traffic congestion: on-chip memory.
+### Importance of memory access efficiency
+- Compute to memory access ratio / Arithmetic intensity: Ratio of floating point operations to bytes accessed. 
+- Naive matrix multiplication: 2 FLOPs (mult + accum) / 8B = 0.25 OP/B
+- An A100 has a global memory bandwidth of 1555 GB/second. Thus, the throughput of single-precision matmul will be limited to 0.25 * 1555 = 389 GFLOPs/sec = 389 GFLOPS. This is just 2% of the peak throughput supported for floating point ops. 
+- The roofline model:
+
+![Alt text](roofline.png)
+
+*Points closer to the two lines indicate that the algorithm is using compute and memory bandwidth efficiently.* 
+
+### Memory types
+
+![Alt text](device_memory_types.png)
+*A simple overview of the CUDA device memory model*
+
+- The best case, of course, is when the memory is already in the registers. To be specific, advantages include much faster access times (and higher access bandwidth), and memory efficiency. Registers are on the processor chip, and you don't need any further memory load instructions, etc to perform your operation (say an ADD operation). 
+- Shared memory: This is a form of *scratchpad memory*. Memory is still on-chip, but of course this has longer latency and lower bandwidth than registers. 
+- A key feature of shared memory is that variables stored in shared memory are accessible by all threads in a block. 
+
+![Alt text](type_qualifiers.png)
+*Type qualifiers for different types of memory in CUDA*
+
+- Constant variables are stored in the global memory but are cached for efficient access. If multiple kernel calls in your CUDA code use the same set of variables, it's a good idea to qualify them with `__constant__` for better access times.
+
+### Tiling
+- A fundamental pattern in CUDA code: operating on tiles of your inputs can be faster since you can save said tiles in shared memory (if you could, you'd put everything in shared memory, but you don't have much of this).
+- Matrix multiplication can be written in a block-wise fashion to take advantage of tiling.
+
+![Alt text](tiled_matmul.png)  
+*Tiled matrix mutiplication kernel. Automatic variables like bx, by, tx and ty are stored in registers. That's one copy per thread! The core of the algorithm is the for loop. Each block of threads performs a partial matrix multiplication by loading TILE_WIDTH x TILE_WIDTH blocks of M and N into shared memory, one-by-one.*
+
+- Interestingly, there are two `__syncthreads()` operations in the kernel. The first one in line 21 is obvious. In Line 26, it is added because we don't want any one thread to move onto the next iteration and corrupt the current values in shared memory that some other thread is still using.
+- With WxW tiling, you reduce the number of global memory accesses by W. This is because each row of M and each column of N is now accessed only once instead of W times.
+- There are some additional boundary conditions needed in line 19 and 20 to handle general matrix dimensions.
+
+### Memory usage and occupancy
+- The amount of on-chip memory -registers, shared memory needed per thread can impact occupancy. 
+- For an A100, you get about 164KB of shared memory per SM with a maximum of 2048 threads per SM. This means a maximum of 82 B of shared memory per thread 
+- In the tiled matmul example, each thread uses 4 B + 4B = 8B of shared memory, one for each element of M and N it loads.
+- THe size of the shared memory matrices can be dynamically changed (here it was the constant TILE_WIDTH) by using the `extern` keyword.
+
