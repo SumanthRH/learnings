@@ -18,3 +18,14 @@ b. The fix is to add `__syncthreads()` after line 10. A better way is to avoid s
     d. 8 versions of $b\_s[]$.  
     e. Per block, we have 128+1 = 129 variables = 129*4 = 516 B of shared memory.  
     f. Num. of Ops = 10 per thread. Number of global memory accesses = 5 per thread. Thus, ratio = 2 OP/B.
+12. 2048 threads/SM, 32 blocks/SM, 65,536 registers/SM and 96KB of shared memory/SM.   
+    a. The kernel uses 64 threads/block, 27 registers/thread, and 4 KB of shared memory/SM.   
+    Num blocks = 2048/64 = 32 blocks/ SM $\checkmark$   
+    Number of registers = $2048\times 27 = 55,296 ~\checkmark$.  
+    Total shared memory needed = 4K * 32 =  128 KB $\times$.  
+    Full occupancy is NOT possible because of shared memory limitation.  
+    b. The kernel uses 256 threads/block, 31 registers/thread, and 8 KB of shared memory/SM.  
+    Num blocks = 2048/256 = 8 blocks/ SM $\checkmark$   
+    Number of registers = $2048\times 31 = 63,488~\checkmark$.  
+    Total shared memory needed = 8K * 8 =  64 KB $\checkmark$.  
+    Full occupancy is possible!
