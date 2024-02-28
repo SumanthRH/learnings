@@ -192,3 +192,48 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 - In the tiled matmul example, each thread uses 4 B + 4B = 8B of shared memory, one for each element of M and N it loads.
 - THe size of the shared memory matrices can be dynamically changed (here it was the constant TILE_WIDTH) by using the `extern` keyword.
 
+## Chapter 6: Performance Considerations
+### Memory coalescing
+- The global memory of a CUDA device is implemented with DRAM. Data bits are stored in DRAM cells that are small capacitors, in which the presence or absence of a tiny amount of electrical charge distinguishes between a 1 and a 0 value. 
+- DRAM memory access takes tens of nanoseconds per bit, much slower than the subnanosecond clock speed of modern processors. 
+- DRAM can hide some of this latency with parallel data access i.e memory access throughput. (*DRAM bursting*)
+- DRAM memory access speeds can be better if you use a larger capacitor, but, over the years, we've wanted to pack more bits per chip, so the sizes have only gotten smaller. Thus, memory latency hasn't improved much.
+- In CUDA devices, when threads in a warp want to access memory, the hardware detects whether they are accessing consecutive memory locations. In this case, the hardware combines, or coalesces, all these accesses into a single, consolidated access to consecutive DRAM locations. 
+- Strategies to achieve memory coalescing:  
+    a. Rearrange how threads are mapped to data  
+    b. Change the data layout itself  
+    c. Transfer the data from global memory to shared memory. Carry out the unfavourable access pattern here, with lower latencies. (*Corner tuning*) 
+### Hiding memory latency
+- DRAMs go further for parallel memory access through banks and channels.
+- A processor consists of one or more channels. Each channel is a memory controller with a bus that connects a set of DRAM banks to the processor.
+- Each bus has a data transfer rate determined by its width and clock frequency. *Double Data Rate(DDR)* busses perform two mem accesses per clock cycle (one at the falling edge, one at the rising edge). For example, a 64-bit DDR bus with 1GHz clock frequency can support rates of 8*2 = 16GB/sec.
+- Each bus is an array of DRAM cells (along with sensing amplifiers for these cells, etc).
+- Each DRAM access involves long latency for the decoder to enable the cells and for the cells to share their stored charge with the sensing amplifier. 
+
+![Alt text](dram.png)  
+*An example DRAM system with 4 channels with 4 banks per channel. Each bank is an array of DRAM cells that one can access.*
+
+![Alt text](dram_bank.png)  
+*An excellent visualization for banking. In Figure (A), we have onely one bank, with long idle times between burts. In Figure (B), we have multiple banks per channel, with bursts and idle time of different banks overlapped. Recall that the idle times between consecutive DRAM accesses are unavoidable.*
+
+- The ratio of the memory access latency and the data transfer rate can be large, like 20: 1. This means that the memory bus utilization is 1/21 = $4.8\\%$. This problem is solved by connecting multiple banks to a channel. To fully utilize the channel memory bus, we need 21 banks for the channel. More generally, if the ratio is R: 1, then the number of banks per channel needed is R+1.
+
+![Alt text](dram_array.png)  
+*Array elements distributed into channels and banks. In this case, the array is stored in channels in groups of 8 bytes. Two successive 8-byte chunks are stored in different channels. Notice how a memory access for consecutive elements will spread across channels, thereby utilizing more of the available bandwidth.*
+
+- DRAM burst size is the total number of bits you can access across all channels. The above memory layout will maximize utilization of the DRAM burst for accessing consecutive array positions.
+
+### Thread coalescing
+- There's always some price to pay with thread parallelism - redundant data loading, synchronization overhead, etc.
+- Sometimes, it is better to *partially* serialize the work and reduce the price that is paid for parallelism. This can be done by assigning each thread multiple units of work, referred to as *thread coarsening*.
+- A classic example where you can apply thread coarsening is matrix multiplication (say of M and N), where the same blocks of M are loaded by different threads to compute different output elements. If this loading is serial, then there is a price with parallelism (redundant long latency DRAM accesses)
+- Two simple pitfalls to avoid with thread coarsening:
+    - Applying to places where it doesn't make any sense - different thread units were already independent. For example vector addition.
+    - Applying to too much coarsening such that the hardware resources are underutilized. 
+- [TODO: Need a good toy example here for when coarsening can help]
+
+### A checklist of optimizations
+Nothing much to say apart from putting up the exact summary verbatim:
+![Alt text](checklist_optimizations.png)
+
+- [TODO: Based on algorithms in later chapters, add demonstrations of applying different optimizations]
