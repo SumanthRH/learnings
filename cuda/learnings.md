@@ -132,7 +132,7 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 - One reason for using a control construct (like an if condition) that shows control divergence: boundary conditions with data. 
 - Data size might not be divisible by block size, and thus you need a guard (`if(x < n)`) to ensure correctness. Some threads launched will thus be inactive (yet there will be two passes by the hardware. This is why data size will determine how much of an impact this has.)
 
-![Alt text](control_divergence.png) 
+![Alt text](images/images/control_divergence.png) 
 
 ### Warp scheduling and latency tolerance
 - Each SM is assigned more warps than it can process at a given instant.
@@ -157,20 +157,20 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 - An A100 has a global memory bandwidth of 1555 GB/second. Thus, the throughput of single-precision matmul will be limited to 0.25 * 1555 = 389 GFLOPs/sec = 389 GFLOPS. This is just 2% of the peak throughput supported for floating point ops. 
 - The roofline model:
 
-![Alt text](roofline.png)
+![Alt text](images/roofline.png)
 
 *Points closer to the two lines indicate that the algorithm is using compute and memory bandwidth efficiently.* 
 
 ### Memory types
 
-![Alt text](device_memory_types.png)
+![Alt text](images/device_memory_types.png)
 *A simple overview of the CUDA device memory model*
 
 - The best case, of course, is when the memory is already in the registers. To be specific, advantages include much faster access times (and higher access bandwidth), and memory efficiency. Registers are on the processor chip, and you don't need any further memory load instructions, etc to perform your operation (say an ADD operation). 
 - Shared memory: This is a form of *scratchpad memory*. Memory is still on-chip, but of course this has longer latency and lower bandwidth than registers. 
 - A key feature of shared memory is that variables stored in shared memory are accessible by all threads in a block. 
 
-![Alt text](type_qualifiers.png)
+![Alt text](images/type_qualifiers.png)
 *Type qualifiers for different types of memory in CUDA*
 
 - Constant variables are stored in the global memory but are cached for efficient access. If multiple kernel calls in your CUDA code use the same set of variables, it's a good idea to qualify them with `__constant__` for better access times.
@@ -179,7 +179,7 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 - A fundamental pattern in CUDA code: operating on tiles of your inputs can be faster since you can save said tiles in shared memory (if you could, you'd put everything in shared memory, but you don't have much of this).
 - Matrix multiplication can be written in a block-wise fashion to take advantage of tiling.
 
-![Alt text](tiled_matmul.png)  
+![Alt text](images/tiled_matmul.png)  
 *Tiled matrix mutiplication kernel. Automatic variables like bx, by, tx and ty are stored in registers. That's one copy per thread! The core of the algorithm is the for loop. Each block of threads performs a partial matrix multiplication by loading TILE_WIDTH x TILE_WIDTH blocks of M and N into shared memory, one-by-one.*
 
 - Interestingly, there are two `__syncthreads()` operations in the kernel. The first one in line 21 is obvious. In Line 26, it is added because we don't want any one thread to move onto the next iteration and corrupt the current values in shared memory that some other thread is still using.
@@ -210,15 +210,15 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 - Each bus is an array of DRAM cells (along with sensing amplifiers for these cells, etc).
 - Each DRAM access involves long latency for the decoder to enable the cells and for the cells to share their stored charge with the sensing amplifier. 
 
-![Alt text](dram.png)  
+![Alt text](images/dram.png)  
 *An example DRAM system with 4 channels with 4 banks per channel. Each bank is an array of DRAM cells that one can access.*
 
-![Alt text](dram_bank.png)  
+![Alt text](images/dram_bank.png)  
 *An excellent visualization for banking. In Figure (A), we have onely one bank, with long idle times between burts. In Figure (B), we have multiple banks per channel, with bursts and idle time of different banks overlapped. Recall that the idle times between consecutive DRAM accesses are unavoidable.*
 
 - The ratio of the memory access latency and the data transfer rate can be large, like 20: 1. This means that the memory bus utilization is 1/21 = $4.8\\%$. This problem is solved by connecting multiple banks to a channel. To fully utilize the channel memory bus, we need 21 banks for the channel. More generally, if the ratio is R: 1, then the number of banks per channel needed is R+1.
 
-![Alt text](dram_array.png)  
+![Alt text](images/dram_array.png)  
 *Array elements distributed into channels and banks. In this case, the array is stored in channels in groups of 8 bytes. Two successive 8-byte chunks are stored in different channels. Notice how a memory access for consecutive elements will spread across channels, thereby utilizing more of the available bandwidth.*
 
 - DRAM burst size is the total number of bits you can access across all channels. The above memory layout will maximize utilization of the DRAM burst for accessing consecutive array positions.
@@ -234,6 +234,6 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 
 ### A checklist of optimizations
 Nothing much to say apart from putting up the exact summary verbatim:
-![Alt text](checklist_optimizations.png)
+![Alt text](images/checklist_optimizations.png)
 
 - [TODO: Based on algorithms in later chapters, add demonstrations of applying different optimizations]
