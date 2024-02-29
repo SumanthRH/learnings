@@ -39,7 +39,7 @@ __global__ void MatMulKernelCornerTune(float* M, float*N, float*P, int Width){
 }
 
 int main(void){
-  int Width = 1<<5;
+  int Width = 1<<10;
   printf("Initialization: Matrix Numel %d\n", Width*Width);
   float *x, *y, *d_x, *d_y, *d_P, *P;
   x = (float*)malloc(Width*Width*sizeof(float));
