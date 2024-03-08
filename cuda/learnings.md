@@ -120,7 +120,7 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 - One advantage of SIMD is that the cost of the control hardware (eg. instruction fetch/dispatch unit) is shared across multiple processing units (cores).
 - When you think about instruction execution, you should imagine *warps*, not *threads* -  the same instruction is executed for a group of threads. So for example, if a global memory access is needed, then the entire warp is waiting for data for all the 32 threads.
 
-![Alt text](comp_arch_simd.png) 
+![Alt text](images/comp_arch_simd.png) 
 *Figure depicts a modified von Neumann archictecture for the Single-Instruction-Multiple-Data mode used in GPUs. The Control Unit loads the same instruction such as `add r1, r2, r3` for all the different processing units. The difference between processing units is that the registers contain different data.*
 
 ### Control divergence
@@ -132,7 +132,7 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 - One reason for using a control construct (like an if condition) that shows control divergence: boundary conditions with data. 
 - Data size might not be divisible by block size, and thus you need a guard (`if(x < n)`) to ensure correctness. Some threads launched will thus be inactive (yet there will be two passes by the hardware. This is why data size will determine how much of an impact this has.)
 
-![Alt text](images/images/control_divergence.png) 
+![Alt text](images/control_divergence.png) 
 
 ### Warp scheduling and latency tolerance
 - Each SM is assigned more warps than it can process at a given instant.
@@ -252,7 +252,7 @@ $$y_i = \displaystyle\sum_{j=-r}^{r}{f_{i+j}x_i}$$
 
 ### Caching
 - The filter $F$ in the code above is used by all the threads in the grid and also remains constant throughout the kernel execution. 
--  This can thus be stored in constant memory and cached for later accesses. Recall the device memory mode: constant memory is available per-grid and is essentially a section in DRAM.
+-  This can thus be stored in constant memory and cached for later accesses. Recall the device memory mode: constant memory is available per-grid and is essentially a section in DRAM. This increases the arithmetic intensity to 0.5 OP/B.
 -  Declare a constant memory variable as :
 `__constant__  <dtype> <var>`. This must be a *global* variable in the source file!. Use `cudaMemcpyToSymbol` to copy data into constant memory.
 - Use the global variable in your kernel directly now:
@@ -261,3 +261,9 @@ $$y_i = \displaystyle\sum_{j=-r}^{r}{f_{i+j}x_i}$$
 *2D Convolution kernel with the filter in constant memory. Almost all of the code is the same, the key difference is that $F$ is now a global variable*
 
 - Caching with CUDA devices is "transparent" to programs (or maybe, opaque?). You don't have to worry about explicitly copying global memory variables into cache - the hardware will do this for you. 
+-  As usual, the numbering convention for these cache levels reflects the distance to the processor. 
+
+![Alt text](images/caches.png)
+
+- An L1 cache is small, typically between 16 and 64 KB in capacity. L2 caches are larger, in the range of a few hundred kilobytes to a small number of MBs but can take tens of cycles to access.
+- Modern GPUs have a specialized cache called the *constant cache*. This is designed specifically to support only reads, and is efficient in terms of area and power consumption.
