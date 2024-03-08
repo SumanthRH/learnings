@@ -145,7 +145,7 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 - Occupancy can vary because of how execution resources of an SM are *partitioned*. Execution resources include registers, shared memory, thread block slots and thread slots.
 - Consider the A100 GPU. Each SM has a maximum of 32 blocks per SM, 64 warps (2048 threads) per SM. What if the block size is 768? Then the number of blocks an SM can handle is 2 (1536 threads). This means that the occupancy is 1536/2048 = 75\%.
 - There are register resource limitations on occupancy.For an A100, there is a maximum of 65,536 registers per SM. Thus, each thread cannot use more than (65536/2048)= 32 registers for maximum occupancy. But, if each thread needs, say, 64 registers, then you can never achieve maximum occupancy, regardless of block size, etc. the CUDA compiler can perform register spilling to reduce the requirements per thread, but this is at the cost of latency.
-- There's a [CUDA Occupancy Calculator from NVIDIA](https://developer.download.nvidia.com/compute/cuda/4_0/sdk/docs/CUDA_Occupancy_Calculator.xls) that can help calculate the actual number of threads per SM. This is a bit old now though so it might not work for the latest CUDA versions.
+- There was a [CUDA Occupancy Calculator from NVIDIA](https://developer.download.nvidia.com/compute/cuda/4_0/sdk/docs/CUDA_Occupancy_Calculator.xls) that could help calculate the actual number of threads per SM. This is old now though and for newer series it is integrated into Nsight Compute.
 - The amount of resources in each CUDA device SM is mentioned as a part of the *compute capability* of the device. Even seen the number "compute capability 8.0", etc? This is what that means.
 
 ## Chapter 5
@@ -167,7 +167,7 @@ myKernel<<<dimGrid, dimBlock>>>(arg1, arg2...)
 *A simple overview of the CUDA device memory model*
 
 - The best case, of course, is when the memory is already in the registers. To be specific, advantages include much faster access times (and higher access bandwidth), and memory efficiency. Registers are on the processor chip, and you don't need any further memory load instructions, etc to perform your operation (say an ADD operation). 
-- Shared memory: This is a form of *scratchpad memory*. Memory is still on-chip, but of course this has longer latency and lower bandwidth than registers. 
+- Shared memory: This is a form of *scratchpad memory*. Memory is still on-chip, but of course this has longer latency and lower bandwidth than registers. (at the level of L1 cache)
 - A key feature of shared memory is that variables stored in shared memory are accessible by all threads in a block. 
 
 ![Alt text](images/type_qualifiers.png)
@@ -237,3 +237,27 @@ Nothing much to say apart from putting up the exact summary verbatim:
 ![Alt text](images/checklist_optimizations.png)
 
 - [TODO: Based on algorithms in later chapters, add demonstrations of applying different optimizations]
+
+## Chapter 7: Convolution
+- Defining the convolution: A convolution between a  filter of radius $r$ , $f = [f_0, f_1, \dots, f_{2r}]$ and an input signal $x = [x_0, x_1, \dots, x_{n-1}]$  is defined as 
+$$y_i = \displaystyle\sum_{j=-r}^{r}{f_{i+j}x_i}$$
+
+- Boundary cases: zero padding ("ghost cells")
+- Assume for simplicity here that the input and output have the same dimensions.
+
+### A simple convolution kernel
+
+![Alt text](images/simple_2d_conv.png)
+- Similar to the matmul, this has an arithmetic intensity of 0.25 OP/B.
+
+### Caching
+- The filter $F$ in the code above is used by all the threads in the grid and also remains constant throughout the kernel execution. 
+-  This can thus be stored in constant memory and cached for later accesses. Recall the device memory mode: constant memory is available per-grid and is essentially a section in DRAM.
+-  Declare a constant memory variable as :
+`__constant__  <dtype> <var>`. This must be a *global* variable in the source file!. Use `cudaMemcpyToSymbol` to copy data into constant memory.
+- Use the global variable in your kernel directly now:
+
+![Alt text](images/const_2d_conv.png)
+*2D Convolution kernel with the filter in constant memory. Almost all of the code is the same, the key difference is that $F$ is now a global variable*
+
+- Caching with CUDA devices is "transparent" to programs (or maybe, opaque?). You don't have to worry about explicitly copying global memory variables into cache - the hardware will do this for you. 
