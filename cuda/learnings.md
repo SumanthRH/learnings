@@ -275,4 +275,5 @@ $$y_i = \displaystyle\sum_{j=-r}^{r}{f_{i+j}x_i}$$
 ![Alt text](images/tiled_conv.png)
 *Tiled 2D convolution kernel with filter in constant memory*
 
-- The code can take a while to digest, but when you understand it you're gonna sit there like :mind-blown:
+- The code can take a while to digest, but when you understand it you're gonna sit there like 🤯
+
