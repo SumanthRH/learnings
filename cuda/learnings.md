@@ -267,3 +267,10 @@ $$y_i = \displaystyle\sum_{j=-r}^{r}{f_{i+j}x_i}$$
 
 - An L1 cache is small, typically between 16 and 64 KB in capacity. L2 caches are larger, in the range of a few hundred kilobytes to a small number of MBs but can take tens of cycles to access.
 - Modern GPUs have a specialized cache called the *constant cache*. This is designed specifically to support only reads, and is efficient in terms of area and power consumption.
+
+### Tiled Convoution with Halo Cells
+- When you add tiling for convolution, things are a bit more complicated because the input and output tile sizes are different. 
+- If the filter radius is *r* (i.e filter size is $2r+1$) and the output tile size is $o_t$, the input tile is $o_t+2r$.
+
+![Alt text](images/tiled_conv.png)
+*Tiled 2D convolution kernel with filter in constant memory*
