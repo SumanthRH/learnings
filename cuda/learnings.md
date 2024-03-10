@@ -275,5 +275,4 @@ $$y_i = \displaystyle\sum_{j=-r}^{r}{f_{i+j}x_i}$$
 ![Alt text](images/tiled_conv.png)
 *Tiled 2D convolution kernel with filter in constant memory*
 
-- The code can take a while to digest, but when you understand it you're gonna sit there like 🤯
-
+- The code can take a while to digest. One of the key things to note is that while block size is `IN_TILE_DIM`, the output `col` and `row` value handled by that thread are in multiples of `OUT_TILE_DIM`. This is precisely because of the differences in input and output tile sizes. Each output tile a tile of size `IN_TILE_DIM` > `OUT_TILE_DIM` in shared memory for perfoming the convolution. 
