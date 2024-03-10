@@ -276,3 +276,14 @@ $$y_i = \displaystyle\sum_{j=-r}^{r}{f_{i+j}x_i}$$
 *Tiled 2D convolution kernel with filter in constant memory*
 
 - The code can take a while to digest. One of the key things to note is that while block size is `IN_TILE_DIM`, the output `col` and `row` value handled by that thread are in multiples of `OUT_TILE_DIM`. This is precisely because of the differences in input and output tile sizes. Each output tile a tile of size `IN_TILE_DIM` > `OUT_TILE_DIM` in shared memory for perfoming the convolution. 
+- Arithmetic intensity: Each thread block perfoms $2*(2r+1)$ operations per entry in the output tile, and thus performs a total of $\text{OUT\_TILE\_DIM}^2 (2r+1)*2$ FLOPs. We have $\text{IN\_TILE\_DIM}^2$ =  $(\text{OUT\_TILE\_DIM}+2r)^2 * 4$  bytes of global memory accesses per thread block. Thus, 
+
+Arithmetic intensity = $\dfrac{\text{OUT\_TILE\_DIM}^2 (2r+1)*2}{(\text{OUT\_TILE\_DIM}+2r)^2 * 4}$
+
+### Tiled convolution with caches 
+
+![Alt text](tiled_conv_cache.png)
+*Tiled convolution algorithm with caching. Notice that the input and output tile size are the same*
+
+- One can make sure of caching to reduce some of the complexity of dealing with halo cells in the previous section. In this case, each block will load inputs only in the `OUT_TILE_DIM` region into shared memory. For the halo cells, the idea is that neighbouring blocks might have already performed a global memory access to load these, and thus their values are already in the L2 cache.
+- In the code above, you've got `IN_TILE_DIM=OUT_TILE_DIM=TILE_SIZE`. Notice that the halo cells are loaded directly from the array `N` instead of the shared memory array.
