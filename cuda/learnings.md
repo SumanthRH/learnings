@@ -287,3 +287,4 @@ Arithmetic intensity = $\dfrac{\text{OUT\_TILE\_DIM}^2 (2r+1)*2}{(\text{OUT\_TIL
 
 - One can make sure of caching to reduce some of the complexity of dealing with halo cells in the previous section. In this case, each block will load inputs only in the `OUT_TILE_DIM` region into shared memory. For the halo cells, the idea is that neighbouring blocks might have already performed a global memory access to load these, and thus their values are already in the L2 cache.
 - In the code above, you've got `IN_TILE_DIM=OUT_TILE_DIM=TILE_SIZE`. Notice that the halo cells are loaded directly from the array `N` instead of the shared memory array.
+
