@@ -21,6 +21,6 @@ d. New algorithm:
     1. Number of thread blocks needed:  (M $\times$ M)/(T $\times$ T)   
     2. Threads per block = $(T + (N-1)/2) \times (T + (N-1)/2)$  
     3. Shared memory per block = $T \times T$  
-8. TODO
+8. 
 9. TODO
 10. TODO
