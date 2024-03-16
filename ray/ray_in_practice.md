@@ -1,3 +1,5 @@
+# Setting up a Ray Cluster
+
 # Ray Data
 - Ray data is Ray's one-stop-shop solution to parallelize preprocessing for various machine learning datasets. 
 - Ray data is mainly concerned with parallel execution and fault tolerance. Ray data has native reading/writing/preprocessing APIs, but, more importantly, integrates with your favourite libraries like PyTorch, Xgboost, Pandas, Dask, etc.
