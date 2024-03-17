@@ -41,7 +41,7 @@ If you've got 4 CPUs in each node and 3 nodes, then the above code would run bat
 You might say that there are similar functionalities in different libraries like PySpark, but Ray's model is general and thus you can use a similar predictor class + map batches call for various types of data - dataframes, images, text, etc.
 
 # Ray Train
-
+Ray Train is a library for distributed ML model training powered by Ray. 
 
 # Ray Tune
 
