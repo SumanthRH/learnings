@@ -1,5 +1,16 @@
 # Pytorch Notes
 
+## Table of Contents
+- [Helpful links](#helpful-links)
+- [FSDP v1](#fsdp-v1)
+    - [Mixed Precision](#mixed-precision)
+    - [Auto Wrap Policy](#auto-wrap-policy)
+    - [State Dict Management](#state-dict-management)
+    - [`use_orig_params`](#use_orig_params)
+    - [`sync_module_states`](#sync_module_states)
+- [FSDP v2](#fsdp-v2)
+- [DCP](#dcp)
+
 ## Helpful links
 - Memory management: https://pytorch.org/docs/stable/notes/cuda.html#cuda-memory-management 
 - Autograd mechanics: https://pytorch.org/docs/stable/notes/autograd.html
