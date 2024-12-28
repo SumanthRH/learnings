@@ -5,18 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "torch==2.6.0",
+    "accelerate>=1.2.1",
+    "psutil>=6.1.1",
+    "ray>=2.40.0",
+    "transformers>=4.47.1",
 ]
-
-[[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
-explicit = true
-
-[tool.uv.sources]
-torch = [
-  { index = "pytorch-cu124", marker = "platform_system != 'Darwin'"},
-]
-torchvision = [
-  { index = "pytorch-cu124", marker = "platform_system != 'Darwin'"},
+# override torch dependency to be empty. This is to allow user specified torch versions to be installed, for example nightly torch versions 
+[tool.uv]
+override-dependencies = [
+    "torch; sys_platform == 'never'",
 ]
