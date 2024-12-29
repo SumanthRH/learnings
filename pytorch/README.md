@@ -12,6 +12,7 @@
 - [DCP](#dcp)
 
 ## Helpful links
+- Understanding CUDA Memory Usage:  https://pytorch.org/docs/stable/torch_cuda_memory.html 
 - Memory management: https://pytorch.org/docs/stable/notes/cuda.html#cuda-memory-management 
 - Autograd mechanics: https://pytorch.org/docs/stable/notes/autograd.html
 
