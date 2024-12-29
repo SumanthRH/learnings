@@ -122,7 +122,6 @@ def run_fsdp_example(rank, world_size, args):
         )
 
         with record_function:
-            optimizer.zero_grad()
             model(
                 input_ids=torch.randint(0, 100, (1, 16), device="cuda")
             ).logits.mean().backward()
