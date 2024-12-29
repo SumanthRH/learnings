@@ -40,9 +40,9 @@ You can get a flame graph from the pickle file as follows:
 python torch/cuda/_memory_viz.py memory /path/to/snapshot.pkl -o snapshot.svg
 ```
 
-[View Flame Graph](../assets/fsdp_snapshot.html)
+![Flame graph](../assets/snapshot.svg)
 
-
+(For an interactive version download the svg and open in browser)
 
 References:
 - Debugging Pytorch Memory use with Snapshots: https://zdevito.github.io/2022/08/16/memory-snapshots.html 
