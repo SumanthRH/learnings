@@ -24,21 +24,23 @@ with open("snapshot.pkl", "wb") as f:
 The pickle file can be converted to a html file as:
 
 ```bash
-python torch/cuda/_memory_viz.py trace_plot /path/to/snapshot.pkl -o snapshot.svg
+python torch/cuda/_memory_viz.py trace_plot /path/to/snapshot.pkl -o snapshot.html
 ```
 
 The pytorch memory snapshot is below:
 
-![memory_snapshot](./memory_snapshot.png)
+![memory_snapshot](../assets/torch_memory_snapshot.png)
 
 
 Delineating different memory allocations in the memory timeline is not that simple - but you can do it by hovering over the memory allocations and looking at the stack trace to see which line of code is responsible. 
 
-You can convert the pickle file to a html file as follows:
+You can get a flame graph from the pickle file as follows:
 
 ```bash
 python torch/cuda/_memory_viz.py memory /path/to/snapshot.pkl -o snapshot.svg
 ```
+
+![flame_graph](../assets/snapshot.svg)
 
 References:
 - Debugging Pytorch Memory use with Snapshots: https://zdevito.github.io/2022/08/16/memory-snapshots.html 

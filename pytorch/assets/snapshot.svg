@@ -1,0 +1,1358 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="1126" onload="init(evt)" viewBox="0 0 1200 1126" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search, #ignorecase { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		ignorecaseBtn = document.getElementById("ignorecase");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+		currentSearchTerm = null;
+
+		// use GET parameters to restore a flamegraphs state.
+		var params = get_params();
+		if (params.x && params.y)
+			zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+                if (params.s) search(params.s);
+	}
+
+	// event listeners
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom(true);
+			zoom(target);
+			if (!document.querySelector('.parent')) {
+				// we have basically done a clearzoom so clear the url
+				var params = get_params();
+				if (params.x) delete params.x;
+				if (params.y) delete params.y;
+				history.replaceState(null, null, parse_params(params));
+				unzoombtn.classList.add("hide");
+				return;
+			}
+
+			// set parameters for zoom state
+			var el = target.querySelector("rect");
+			if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+				var params = get_params()
+				params.x = el.attributes._orig_x.value;
+				params.y = el.attributes.y.value;
+				history.replaceState(null, null, parse_params(params));
+			}
+		}
+		else if (e.target.id == "unzoom") clearzoom();
+		else if (e.target.id == "search") search_prompt();
+		else if (e.target.id == "ignorecase") toggle_ignorecase();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	// ctrl-I to toggle case-sensitive search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+		else if (e.ctrlKey && e.keyCode === 73) {
+			e.preventDefault();
+			toggle_ignorecase();
+		}
+	}, false)
+
+	// functions
+	function get_params() {
+		var params = {};
+		var paramsarr = window.location.search.substr(1).split('&');
+		for (var i = 0; i < paramsarr.length; ++i) {
+			var tmp = paramsarr[i].split("=");
+			if (!tmp[0] || !tmp[1]) continue;
+			params[tmp[0]]  = decodeURIComponent(tmp[1]);
+		}
+		return params;
+	}
+	function parse_params(params) {
+		var uri = "?";
+		for (var key in params) {
+			uri += key + '=' + encodeURIComponent(params[key]) + '&';
+		}
+		if (uri.slice(-1) == "&")
+			uri = uri.substring(0, uri.length - 1);
+		if (uri == '?')
+			uri = window.location.href.split('?')[0];
+		return uri;
+	}
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		var sl = t.getSubStringLength(0, txt.length);
+		// check if only whitespace or if we can fit the entire string into width w
+		if (/^ *$/.test(txt) || sl < w)
+			return;
+
+		// this isn't perfect, but gives a good starting point
+		// and avoids calling getSubStringLength too often
+		var start = Math.floor((w/sl) * txt.length);
+		for (var x = start; x > 0; x = x-2) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+		search();
+	}
+	function unzoom(dont_update_text) {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			if(!dont_update_text) update_text(el[i]);
+		}
+		search();
+	}
+	function clearzoom() {
+		unzoom();
+
+		// remove zoom state
+		var params = get_params();
+		if (params.x) delete params.x;
+		if (params.y) delete params.y;
+		history.replaceState(null, null, parse_params(params));
+	}
+
+	// search
+	function toggle_ignorecase() {
+		ignorecase = !ignorecase;
+		if (ignorecase) {
+			ignorecaseBtn.classList.add("show");
+		} else {
+			ignorecaseBtn.classList.remove("show");
+		}
+		reset_search();
+		search();
+	}
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+		var params = get_params();
+		delete params.s;
+		history.replaceState(null, null, parse_params(params));
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)"
+			    + (ignorecase ? ", ignoring case" : "")
+			    + "\nPress Ctrl-i to toggle case sensitivity", "");
+			if (term != null) search(term);
+		} else {
+			reset_search();
+			searching = 0;
+			currentSearchTerm = null;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		if (term) currentSearchTerm = term;
+		if (currentSearchTerm === null) return;
+
+		var re = new RegExp(currentSearchTerm, ignorecase ? 'i' : '');
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+		var params = get_params();
+		params.s = currentSearchTerm;
+		history.replaceState(null, null, parse_params(params));
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="1126.0" fill="url(#background)"  />
+<text id="title" x="600.00" y="24" >Flame Graph</text>
+<text id="details" x="10.00" y="1109" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1090.00" y="24" >Search</text>
+<text id="ignorecase" x="1174.00" y="24" >ic</text>
+<text id="matched" x="1090.00" y="1109" > </text>
+<g id="frames">
+<g >
+<title>??:0:run_mod.llvm.40007502541437336 (101,263,104 bytes, 29.71%)</title><rect x="312.6" y="789" width="350.6" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="315.57" y="799.5" >??:0:run_mod.llvm.40007502541437336</text>
+</g>
+<g >
+<title>??:0:at::native::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="341" width="89.9" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="24.10" y="351.5" >??:0:at::n..</text>
+</g>
+<g >
+<title>CUDACachingAllocator.cpp:0:c10::cuda::CUDACachingAllocator::Native::DeviceCachingAllocator::malloc(signed char, unsigned long, CUstream_st*) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="229" width="89.9" height="15.0" fill="rgb(236,146,35)" rx="2" ry="2" />
+<text  x="24.10" y="239.5" >CUDACachin..</text>
+</g>
+<g >
+<title>modeling_llama.py:159:forward (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="437" width="116.2" height="15.0" fill="rgb(206,8,1)" rx="2" ry="2" />
+<text  x="199.40" y="447.5" >modeling_llama..</text>
+</g>
+<g >
+<title>optimizer.py:91:_use_grad (101,263,104 bytes, 29.71%)</title><rect x="312.6" y="901" width="350.6" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="315.57" y="911.5" >optimizer.py:91:_use_grad</text>
+</g>
+<g >
+<title>??:0:slot_tp_init (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="629" width="89.9" height="15.0" fill="rgb(216,52,12)" rx="2" ry="2" />
+<text  x="24.10" y="639.5" >??:0:slot_..</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:at::(anonymous namespace)::(anonymous namespace)::wrapper_CUDA__empty_strided(c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="549" width="175.3" height="15.0" fill="rgb(211,31,7)" rx="2" ry="2" />
+<text  x="490.86" y="559.5" >RegisterCUDA.cpp:0:at:..</text>
+</g>
+<g >
+<title>??:0:PyRun_SimpleStringFlags (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="693" width="89.9" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="24.10" y="703.5" >??:0:PyRun..</text>
+</g>
+<g >
+<title>??:0:at::_ops::clone::call(at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="517" width="89.9" height="15.0" fill="rgb(251,211,50)" rx="2" ry="2" />
+<text  x="24.10" y="527.5" >??:0:at::_..</text>
+</g>
+<g >
+<title>??:0:at::_ops::empty_strided::redispatch(c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="533" width="85.4" height="15.0" fill="rgb(231,121,28)" rx="2" ry="2" />
+<text  x="113.97" y="543.5" >??:0:at::_..</text>
+</g>
+<g >
+<title>module.py:1736:_wrapped_call_impl (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="533" width="116.2" height="15.0" fill="rgb(205,1,0)" rx="2" ry="2" />
+<text  x="199.40" y="543.5" >module.py:1736..</text>
+</g>
+<g >
+<title>_init_utils.py:636:_init_param_handle_from_module (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="901" width="85.4" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="113.97" y="911.5" >_init_util..</text>
+</g>
+<g >
+<title>??:0:at::native::matmul(at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="293" width="116.2" height="15.0" fill="rgb(206,5,1)" rx="2" ry="2" />
+<text  x="199.40" y="303.5" >??:0:at::nativ..</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;), &amp;at::(anonymous namespace)::(anonymous namespace)::wrapper_CUDA__empty_strided&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt; &gt; &gt;, at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="373" width="89.9" height="15.0" fill="rgb(242,174,41)" rx="2" ry="2" />
+<text  x="24.10" y="383.5" >RegisterCU..</text>
+</g>
+<g >
+<title>_init_utils.py:661:_init_param_handle_from_params (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="885" width="85.4" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="113.97" y="895.5" >_init_util..</text>
+</g>
+<g >
+<title>:0:at::empty_like(at::Tensor const&amp;, c10::TensorOptions, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="677" width="175.3" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="315.57" y="687.5" >:0:at::empty_like(at::..</text>
+</g>
+<g >
+<title>fsdp_v2.py:129:run_fsdp_example (101,263,104 bytes, 29.71%)</title><rect x="312.6" y="933" width="350.6" height="15.0" fill="rgb(250,208,49)" rx="2" ry="2" />
+<text  x="315.57" y="943.5" >fsdp_v2.py:129:run_fsdp_example</text>
+</g>
+<g >
+<title>process.py:314:_bootstrap (185,449,312 bytes, 54.41%)</title><rect x="21.1" y="981" width="642.1" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="24.10" y="991.5" >process.py:314:_bootstrap</text>
+</g>
+<g >
+<title>??:0:__libc_init_first (101,263,104 bytes, 29.71%)</title><rect x="312.6" y="869" width="350.6" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="315.57" y="879.5" >??:0:__libc_init_first</text>
+</g>
+<g >
+<title>??:0:at::native::clone(at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="437" width="89.9" height="15.0" fill="rgb(229,112,26)" rx="2" ry="2" />
+<text  x="24.10" y="447.5" >??:0:at::n..</text>
+</g>
+<g >
+<title>_init_utils.py:636:_init_param_handle_from_module (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="789" width="89.9" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="24.10" y="799.5" >_init_util..</text>
+</g>
+<g >
+<title>??:0:Py_BytesMain (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="901" width="116.2" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="199.40" y="911.5" >??:0:Py_BytesM..</text>
+</g>
+<g >
+<title>module.py:1747:_call_impl (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="789" width="116.2" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="199.40" y="799.5" >module.py:1747..</text>
+</g>
+<g >
+<title>??:0:slot_tp_call (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="517" width="116.2" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="199.40" y="527.5" >??:0:slot_tp_c..</text>
+</g>
+<g >
+<title>??:0:__libc_init_first (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="853" width="85.4" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="113.97" y="863.5" >??:0:__lib..</text>
+</g>
+<g >
+<title>fsdp_v2.py:126:run_fsdp_example (33,554,656 bytes, 9.84%)</title><rect x="196.4" y="933" width="116.2" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="199.40" y="943.5" >fsdp_v2.py:126..</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="325" width="89.9" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="24.10" y="335.5" >??:0:at::d..</text>
+</g>
+<g >
+<title>process.py:108:run (185,449,312 bytes, 54.41%)</title><rect x="21.1" y="965" width="642.1" height="15.0" fill="rgb(215,50,12)" rx="2" ry="2" />
+<text  x="24.10" y="975.5" >process.py:108:run</text>
+</g>
+<g >
+<title>??:0:at::_ops::bmm::redispatch(c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="213" width="116.2" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="199.40" y="223.5" >??:0:at::_ops:..</text>
+</g>
+<g >
+<title>RegisterCompositeExplicitAutograd.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;), &amp;at::(anonymous namespace)::(anonymous namespace)::wrapper_CompositeExplicitAutograd__zeros_like&gt;, at::Tensor, c10::guts::typelist::typelist&lt;at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt; &gt; &gt;, at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="709" width="175.3" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="490.86" y="719.5" >RegisterCompositeExpli..</text>
+</g>
+<g >
+<title>??:0:binary_op.llvm.1656466189954907493 (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="421" width="116.2" height="15.0" fill="rgb(212,36,8)" rx="2" ry="2" />
+<text  x="199.40" y="431.5" >??:0:binary_op..</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::malloc(void**, signed char, unsigned long, CUstream_st*) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="661" width="116.1" height="15.0" fill="rgb(252,216,51)" rx="2" ry="2" />
+<text  x="666.15" y="671.5" >:0:c10::cuda::..</text>
+</g>
+<g >
+<title>RegisterCompositeImplicitAutograd.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (at::Tensor const&amp;, at::Tensor const&amp;), &amp;at::(anonymous namespace)::(anonymous namespace)::wrapper_CompositeImplicitAutograd__matmul&gt;, at::Tensor, c10::guts::typelist::typelist&lt;at::Tensor const&amp;, at::Tensor const&amp;&gt; &gt;, at::Tensor (at::Tensor const&amp;, at::Tensor const&amp;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="309" width="116.2" height="15.0" fill="rgb(241,166,39)" rx="2" ry="2" />
+<text  x="199.40" y="319.5" >RegisterCompos..</text>
+</g>
+<g >
+<title>??:0:method_vectorcall.llvm.15250018500215577294 (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="581" width="116.2" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="199.40" y="591.5" >??:0:method_ve..</text>
+</g>
+<g >
+<title>??:0:pymain_main (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="821" width="85.4" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="113.97" y="831.5" >??:0:pymai..</text>
+</g>
+<g >
+<title>??:0:method_vectorcall.llvm.15250018500215577294 (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="645" width="116.2" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="199.40" y="655.5" >??:0:method_ve..</text>
+</g>
+<g >
+<title>??:0:vectorcall_maybe (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="389" width="116.2" height="15.0" fill="rgb(210,23,5)" rx="2" ry="2" />
+<text  x="199.40" y="399.5" >??:0:vectorcal..</text>
+</g>
+<g >
+<title>??:0:at::_ops::empty_strided::call(c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="613" width="175.3" height="15.0" fill="rgb(220,73,17)" rx="2" ry="2" />
+<text  x="315.57" y="623.5" >??:0:at::_ops::empty_s..</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_generic(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="485" width="175.3" height="15.0" fill="rgb(220,71,17)" rx="2" ry="2" />
+<text  x="315.57" y="495.5" >??:0:at::detail::empty..</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::malloc(void**, signed char, unsigned long, CUstream_st*) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="389" width="85.4" height="15.0" fill="rgb(252,216,51)" rx="2" ry="2" />
+<text  x="113.97" y="399.5" >:0:c10::cu..</text>
+</g>
+<g >
+<title>:0:at::cuda::getNewWorkspace() (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="693" width="116.1" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="666.15" y="703.5" >:0:at::cuda::g..</text>
+</g>
+<g >
+<title>??:0:at::native::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="485" width="85.4" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="113.97" y="495.5" >??:0:at::n..</text>
+</g>
+<g >
+<title>python_variable_methods.cpp:0:torch::autograd::THPVariable_clone(_object*, _object*, _object*) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="533" width="89.9" height="15.0" fill="rgb(205,0,0)" rx="2" ry="2" />
+<text  x="24.10" y="543.5" >python_var..</text>
+</g>
+<g >
+<title>VariableType_3.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;), &amp;torch::autograd::VariableType::(anonymous namespace)::mm&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;&gt; &gt;, at::Tensor (c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="853" width="116.1" height="15.0" fill="rgb(243,177,42)" rx="2" ry="2" />
+<text  x="666.15" y="863.5" >VariableType_3..</text>
+</g>
+<g >
+<title>??:0:at::cuda::getCurrentCUDABlasHandle() (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="709" width="116.1" height="15.0" fill="rgb(250,208,49)" rx="2" ry="2" />
+<text  x="666.15" y="719.5" >??:0:at::cuda:..</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::ScalarType, std::optional&lt;c10::Device&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="501" width="175.3" height="15.0" fill="rgb(224,89,21)" rx="2" ry="2" />
+<text  x="490.86" y="511.5" >??:0:at::detail::empty..</text>
+</g>
+<g >
+<title>??:0:at::native::clone(at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="581" width="85.4" height="15.0" fill="rgb(229,112,26)" rx="2" ry="2" />
+<text  x="113.97" y="591.5" >??:0:at::n..</text>
+</g>
+<g >
+<title>RegisterCompositeExplicitAutograd.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;), &amp;at::(anonymous namespace)::(anonymous namespace)::wrapper_CompositeExplicitAutograd__clone&gt;, at::Tensor, c10::guts::typelist::typelist&lt;at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt; &gt; &gt;, at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="597" width="85.4" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="113.97" y="607.5" >RegisterCo..</text>
+</g>
+<g >
+<title>??:0:Py_BytesMain (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="837" width="85.4" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="113.97" y="847.5" >??:0:Py_By..</text>
+</g>
+<g >
+<title>VariableType_1.cpp:0:torch::autograd::VariableType::(anonymous namespace)::clone(c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="485" width="89.9" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="24.10" y="495.5" >VariableTy..</text>
+</g>
+<g >
+<title>python_variable_methods.cpp:0:torch::autograd::THPVariable_clone(_object*, _object*, _object*) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="677" width="85.4" height="15.0" fill="rgb(205,0,0)" rx="2" ry="2" />
+<text  x="113.97" y="687.5" >python_var..</text>
+</g>
+<g >
+<title>:0:torch::autograd::generated::details::mm_mat2_backward(at::Tensor const&amp;, at::Tensor const&amp;, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, c10::Layout, c10::Scalar const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="885" width="116.1" height="15.0" fill="rgb(215,48,11)" rx="2" ry="2" />
+<text  x="666.15" y="895.5" >:0:torch::auto..</text>
+</g>
+<g >
+<title>??:0:at::_ops::matmul::call(at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="325" width="116.2" height="15.0" fill="rgb(227,105,25)" rx="2" ry="2" />
+<text  x="199.40" y="335.5" >??:0:at::_ops:..</text>
+</g>
+<g >
+<title>??:0:at::native::empty_like(at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="629" width="175.3" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="315.57" y="639.5" >??:0:at::native::empty..</text>
+</g>
+<g >
+<title>??:0:at::_ops::clone::redispatch(c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="469" width="89.9" height="15.0" fill="rgb(211,29,7)" rx="2" ry="2" />
+<text  x="24.10" y="479.5" >??:0:at::_..</text>
+</g>
+<g >
+<title>wrap.py:545:_recursive_wrap (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="885" width="89.9" height="15.0" fill="rgb(246,192,45)" rx="2" ry="2" />
+<text  x="24.10" y="895.5" >wrap.py:54..</text>
+</g>
+<g >
+<title>VariableType_3.cpp:0:torch::autograd::VariableType::(anonymous namespace)::mm(c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="837" width="116.1" height="15.0" fill="rgb(219,64,15)" rx="2" ry="2" />
+<text  x="666.15" y="847.5" >VariableType_3..</text>
+</g>
+<g >
+<title>??:0:at::_ops::empty_strided::redispatch(c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="581" width="175.3" height="15.0" fill="rgb(231,121,28)" rx="2" ry="2" />
+<text  x="490.86" y="591.5" >??:0:at::_ops::empty_s..</text>
+</g>
+<g >
+<title>RegisterBackendSelect.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;), &amp;at::(anonymous namespace)::empty_strided&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt; &gt; &gt;, at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="597" width="175.3" height="15.0" fill="rgb(237,150,36)" rx="2" ry="2" />
+<text  x="490.86" y="607.5" >RegisterBackendSelect...</text>
+</g>
+<g >
+<title>module.py:1747:_call_impl (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="693" width="116.2" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="199.40" y="703.5" >module.py:1747..</text>
+</g>
+<g >
+<title>:0:at::empty_like(at::Tensor const&amp;, c10::TensorOptions, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="677" width="175.3" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="490.86" y="687.5" >:0:at::empty_like(at::..</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::ScalarType, std::optional&lt;c10::Device&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="453" width="85.4" height="15.0" fill="rgb(224,89,21)" rx="2" ry="2" />
+<text  x="113.97" y="463.5" >??:0:at::d..</text>
+</g>
+<g >
+<title>python_torch_functions_0.cpp:0:torch::autograd::THPVariable_zeros_like(_object*, _object*, _object*) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="741" width="175.3" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="490.86" y="751.5" >python_torch_functions..</text>
+</g>
+<g >
+<title>??:0:slot_tp_call (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="805" width="116.2" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="199.40" y="815.5" >??:0:slot_tp_c..</text>
+</g>
+<g >
+<title>??:0:std::error_code::default_error_condition() const (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="997" width="116.1" height="15.0" fill="rgb(226,100,23)" rx="2" ry="2" />
+<text  x="666.15" y="1007.5" >??:0:std::erro..</text>
+</g>
+<g >
+<title>&lt;gaps&gt; (46,358,140 bytes, 13.60%)</title><rect x="779.3" y="1029" width="160.5" height="15.0" fill="rgb(217,55,13)" rx="2" ry="2" />
+<text  x="782.32" y="1039.5" >&lt;gaps&gt;</text>
+</g>
+<g >
+<title>??:0:type_call (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="741" width="85.4" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="113.97" y="751.5" >??:0:type_..</text>
+</g>
+<g >
+<title>:0:at::TensorBase at::detail::_empty_strided_generic&lt;c10::ArrayRef&lt;long&gt; &gt;(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="469" width="175.3" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="315.57" y="479.5" >:0:at::TensorBase at::..</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;), &amp;at::(anonymous namespace)::(anonymous namespace)::wrapper_CUDA__empty_strided&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt; &gt; &gt;, at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="565" width="175.3" height="15.0" fill="rgb(242,174,41)" rx="2" ry="2" />
+<text  x="315.57" y="575.5" >RegisterCUDA.cpp:0:c10..</text>
+</g>
+<g >
+<title>all (340,830,720 bytes, 100%)</title><rect x="10.0" y="1077" width="1180.0" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="13.00" y="1087.5" ></text>
+</g>
+<g >
+<title>VariableType_1.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;), &amp;torch::autograd::VariableType::(anonymous namespace)::clone&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt; &gt; &gt;, at::Tensor (c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="645" width="85.4" height="15.0" fill="rgb(251,216,51)" rx="2" ry="2" />
+<text  x="113.97" y="655.5" >VariableTy..</text>
+</g>
+<g >
+<title>??:0:at::_ops::empty_like::call(at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="661" width="175.3" height="15.0" fill="rgb(206,8,2)" rx="2" ry="2" />
+<text  x="315.57" y="671.5" >??:0:at::_ops::empty_l..</text>
+</g>
+<g >
+<title>??:0:at::native::structured_bmm_out_cuda::impl(at::Tensor const&amp;, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="165" width="116.2" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="199.40" y="175.5" >??:0:at::nativ..</text>
+</g>
+<g >
+<title>??:0:method_vectorcall.llvm.15250018500215577294 (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="677" width="116.2" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="199.40" y="687.5" >??:0:method_ve..</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:at::(anonymous namespace)::(anonymous namespace)::wrapper_CUDA__empty_strided(c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="357" width="89.9" height="15.0" fill="rgb(211,31,7)" rx="2" ry="2" />
+<text  x="24.10" y="367.5" >RegisterCU..</text>
+</g>
+<g >
+<title>??:0:Py_RunMain (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="869" width="116.2" height="15.0" fill="rgb(219,64,15)" rx="2" ry="2" />
+<text  x="199.40" y="879.5" >??:0:Py_RunMain</text>
+</g>
+<g >
+<title>??:0:Py_RunMain (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="709" width="89.9" height="15.0" fill="rgb(219,64,15)" rx="2" ry="2" />
+<text  x="24.10" y="719.5" >??:0:Py_Ru..</text>
+</g>
+<g >
+<title>&lt;gaps&gt; (3,207,328 bytes, 0.94%)</title><rect x="10.0" y="1029" width="11.1" height="15.0" fill="rgb(217,55,13)" rx="2" ry="2" />
+<text  x="13.00" y="1039.5" ></text>
+</g>
+<g >
+<title>:0:void at::cuda::blas::gemm_internal_cublas&lt;c10::BFloat16&gt;(char, char, long, long, long, at::OpMathType&lt;c10::BFloat16&gt;::type, c10::BFloat16 const*, long, c10::BFloat16 const*, long, at::OpMathType&lt;c10::BFloat16&gt;::type, c10::BFloat16*, long) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="725" width="116.1" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="666.15" y="735.5" >:0:void at::cu..</text>
+</g>
+<g >
+<title>wrap.py:563:_recursive_wrap (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="837" width="89.9" height="15.0" fill="rgb(246,192,45)" rx="2" ry="2" />
+<text  x="24.10" y="847.5" >wrap.py:56..</text>
+</g>
+<g >
+<title>_flat_param.py:1077:_get_shard (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="565" width="89.9" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="24.10" y="575.5" >_flat_para..</text>
+</g>
+<g >
+<title>??:0:run_mod.llvm.40007502541437336 (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="677" width="89.9" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="24.10" y="687.5" >??:0:run_m..</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;), &amp;at::(anonymous namespace)::(anonymous namespace)::wrapper_CUDA__empty_strided&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt; &gt; &gt;, at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="517" width="85.4" height="15.0" fill="rgb(242,174,41)" rx="2" ry="2" />
+<text  x="113.97" y="527.5" >RegisterCU..</text>
+</g>
+<g >
+<title>_contextlib.py:116:decorate_context (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="469" width="116.2" height="15.0" fill="rgb(236,146,34)" rx="2" ry="2" />
+<text  x="199.40" y="479.5" >_contextlib.py..</text>
+</g>
+<g >
+<title>python_variable_methods.cpp:0:torch::autograd::THPVariable_matmul(_object*, _object*, _object*) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="341" width="116.2" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="199.40" y="351.5" >python_variabl..</text>
+</g>
+<g >
+<title>Blas.cpp:0:at::native::(anonymous namespace)::addmm_out_cuda_impl(at::Tensor&amp;, at::Tensor const&amp;, at::Tensor const&amp;, at::Tensor const&amp;, c10::Scalar const&amp;, c10::Scalar const&amp;, at::native::(anonymous namespace)::Activation) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="757" width="116.1" height="15.0" fill="rgb(238,152,36)" rx="2" ry="2" />
+<text  x="666.15" y="767.5" >Blas.cpp:0:at:..</text>
+</g>
+<g >
+<title>??:0:__libc_init_first (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="917" width="116.2" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="199.40" y="927.5" >??:0:__libc_in..</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::allocate(unsigned long) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="261" width="89.9" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="24.10" y="271.5" >:0:c10::cu..</text>
+</g>
+<g >
+<title>??:0:at::_ops::empty_strided::redispatch(c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="389" width="89.9" height="15.0" fill="rgb(231,121,28)" rx="2" ry="2" />
+<text  x="24.10" y="399.5" >??:0:at::_..</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;), &amp;at::(anonymous namespace)::(anonymous namespace)::wrapper_CUDA__empty_strided&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt; &gt; &gt;, at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="565" width="175.3" height="15.0" fill="rgb(242,174,41)" rx="2" ry="2" />
+<text  x="490.86" y="575.5" >RegisterCUDA.cpp:0:c10..</text>
+</g>
+<g >
+<title>stream_0 (340,830,720 bytes, 100.00%)</title><rect x="10.0" y="1061" width="1180.0" height="15.0" fill="rgb(227,105,25)" rx="2" ry="2" />
+<text  x="13.00" y="1071.5" >stream_0</text>
+</g>
+<g >
+<title>_wrap_utils.py:101:_auto_wrap (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="901" width="89.9" height="15.0" fill="rgb(230,117,28)" rx="2" ry="2" />
+<text  x="24.10" y="911.5" >_wrap_util..</text>
+</g>
+<g >
+<title>??:0:torch::autograd::python::PythonEngine::thread_init(int, std::shared_ptr&lt;torch::autograd::ReadyQueue&gt; const&amp;, bool) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="981" width="116.1" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="666.15" y="991.5" >??:0:torch::au..</text>
+</g>
+<g >
+<title>inactive (118,619,648 bytes, 34.80%)</title><rect x="779.3" y="1045" width="410.7" height="15.0" fill="rgb(216,51,12)" rx="2" ry="2" />
+<text  x="782.32" y="1055.5" >inactive</text>
+</g>
+<g >
+<title>wrap.py:492:_wrap (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="821" width="89.9" height="15.0" fill="rgb(210,25,6)" rx="2" ry="2" />
+<text  x="24.10" y="831.5" >wrap.py:49..</text>
+</g>
+<g >
+<title>Blas.cpp:0:at::native::(anonymous namespace)::baddbmm_out_cuda_impl(at::Tensor const&amp;, at::Tensor const&amp;, at::Tensor const&amp;, at::Tensor const&amp;, c10::Scalar const&amp;, c10::Scalar const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="149" width="116.2" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="199.40" y="159.5" >Blas.cpp:0:at:..</text>
+</g>
+<g >
+<title>RegisterCompositeExplicitAutograd.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;), &amp;at::(anonymous namespace)::(anonymous namespace)::wrapper_CompositeExplicitAutograd__clone&gt;, at::Tensor, c10::guts::typelist::typelist&lt;at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt; &gt; &gt;, at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="453" width="89.9" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="24.10" y="463.5" >RegisterCo..</text>
+</g>
+<g >
+<title>??:0:pymain_main (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="885" width="116.2" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="199.40" y="895.5" >??:0:pymain_main</text>
+</g>
+<g >
+<title>fsdp_v2.py:103:run_fsdp_example (50,631,552 bytes, 14.86%)</title><rect x="21.1" y="933" width="175.3" height="15.0" fill="rgb(252,216,51)" rx="2" ry="2" />
+<text  x="24.10" y="943.5" >fsdp_v2.py:103:run_fsd..</text>
+</g>
+<g >
+<title>??:0:slot_tp_init (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="581" width="89.9" height="15.0" fill="rgb(216,52,12)" rx="2" ry="2" />
+<text  x="24.10" y="591.5" >??:0:slot_..</text>
+</g>
+<g >
+<title>CUDACachingAllocator.cpp:0:c10::cuda::CUDACachingAllocator::Native::DeviceCachingAllocator::malloc(signed char, unsigned long, CUstream_st*) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="421" width="175.3" height="15.0" fill="rgb(236,146,35)" rx="2" ry="2" />
+<text  x="490.86" y="431.5" >CUDACachingAllocator.c..</text>
+</g>
+<g >
+<title>??:0:Py_RunMain (101,263,104 bytes, 29.71%)</title><rect x="312.6" y="821" width="350.6" height="15.0" fill="rgb(219,64,15)" rx="2" ry="2" />
+<text  x="315.57" y="831.5" >??:0:Py_RunMain</text>
+</g>
+<g >
+<title>module.py:1747:_call_impl (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="597" width="116.2" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="199.40" y="607.5" >module.py:1747..</text>
+</g>
+<g >
+<title>_flat_param.py:1077:_get_shard (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="709" width="85.4" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="113.97" y="719.5" >_flat_para..</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::allocate(unsigned long) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="677" width="116.1" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="666.15" y="687.5" >:0:c10::cuda::..</text>
+</g>
+<g >
+<title>??:0:pthread_condattr_setpshared (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="1013" width="116.1" height="15.0" fill="rgb(237,148,35)" rx="2" ry="2" />
+<text  x="666.15" y="1023.5" >??:0:pthread_c..</text>
+</g>
+<g >
+<title>??:0:method_vectorcall.llvm.15250018500215577294 (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="549" width="116.2" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="199.40" y="559.5" >??:0:method_ve..</text>
+</g>
+<g >
+<title>:0:at::cuda::getNewWorkspace() (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="85" width="116.2" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="199.40" y="95.5" >:0:at::cuda::g..</text>
+</g>
+<g >
+<title>??:0:at::_ops::empty_like::call(at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="661" width="175.3" height="15.0" fill="rgb(206,8,2)" rx="2" ry="2" />
+<text  x="490.86" y="671.5" >??:0:at::_ops::empty_l..</text>
+</g>
+<g >
+<title>??:0:at::_ops::empty_strided::redispatch(c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="581" width="175.3" height="15.0" fill="rgb(231,121,28)" rx="2" ry="2" />
+<text  x="315.57" y="591.5" >??:0:at::_ops::empty_s..</text>
+</g>
+<g >
+<title>??:0:at::_ops::empty_strided::call(c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="565" width="85.4" height="15.0" fill="rgb(220,73,17)" rx="2" ry="2" />
+<text  x="113.97" y="575.5" >??:0:at::_..</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::ScalarType, std::optional&lt;c10::Device&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="501" width="175.3" height="15.0" fill="rgb(224,89,21)" rx="2" ry="2" />
+<text  x="315.57" y="511.5" >??:0:at::detail::empty..</text>
+</g>
+<g >
+<title>??:0:at::_ops::empty_strided::call(c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="421" width="89.9" height="15.0" fill="rgb(220,73,17)" rx="2" ry="2" />
+<text  x="24.10" y="431.5" >??:0:at::_..</text>
+</g>
+<g >
+<title>??:0:method_vectorcall.llvm.15250018500215577294 (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="453" width="116.2" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="199.40" y="463.5" >??:0:method_ve..</text>
+</g>
+<g >
+<title>??:0:torch::autograd::generated::MmBackward0::apply(std::vector&lt;at::Tensor, std::allocator&lt;at::Tensor&gt; &gt;&amp;&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="901" width="116.1" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="666.15" y="911.5" >??:0:torch::au..</text>
+</g>
+<g >
+<title>CUDACachingAllocator.cpp:0:c10::cuda::CUDACachingAllocator::Native::DeviceCachingAllocator::malloc(signed char, unsigned long, CUstream_st*) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="373" width="85.4" height="15.0" fill="rgb(236,146,35)" rx="2" ry="2" />
+<text  x="113.97" y="383.5" >CUDACachin..</text>
+</g>
+<g >
+<title>adam.py:213:step (101,263,104 bytes, 29.71%)</title><rect x="312.6" y="885" width="350.6" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="315.57" y="895.5" >adam.py:213:step</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="517" width="175.3" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="315.57" y="527.5" >??:0:at::detail::empty..</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_generic(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="293" width="89.9" height="15.0" fill="rgb(220,71,17)" rx="2" ry="2" />
+<text  x="24.10" y="303.5" >??:0:at::d..</text>
+</g>
+<g >
+<title>&lt;non-python&gt; (72,261,508 bytes, 21.20%)</title><rect x="939.8" y="1029" width="250.2" height="15.0" fill="rgb(242,172,41)" rx="2" ry="2" />
+<text  x="942.82" y="1039.5" >&lt;non-python&gt;</text>
+</g>
+<g >
+<title>??:0:slot_tp_init (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="725" width="85.4" height="15.0" fill="rgb(216,52,12)" rx="2" ry="2" />
+<text  x="113.97" y="735.5" >??:0:slot_..</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:at::(anonymous namespace)::(anonymous namespace)::wrapper_CUDA__empty_strided(c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="549" width="175.3" height="15.0" fill="rgb(211,31,7)" rx="2" ry="2" />
+<text  x="315.57" y="559.5" >RegisterCUDA.cpp:0:at:..</text>
+</g>
+<g >
+<title>??:0:__xmknodat (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="1029" width="116.1" height="15.0" fill="rgb(242,173,41)" rx="2" ry="2" />
+<text  x="666.15" y="1039.5" >??:0:__xmknodat</text>
+</g>
+<g >
+<title>??:0:method_vectorcall.llvm.15250018500215577294 (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="485" width="116.2" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="199.40" y="495.5" >??:0:method_ve..</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::ScalarType, std::optional&lt;c10::Device&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="309" width="89.9" height="15.0" fill="rgb(224,89,21)" rx="2" ry="2" />
+<text  x="24.10" y="319.5" >??:0:at::d..</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="517" width="175.3" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="490.86" y="527.5" >??:0:at::detail::empty..</text>
+</g>
+<g >
+<title>??:0:slot_tp_call (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="709" width="116.2" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="199.40" y="719.5" >??:0:slot_tp_c..</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="469" width="85.4" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="113.97" y="479.5" >??:0:at::d..</text>
+</g>
+<g >
+<title>spawn.py:90:_wrap (185,449,312 bytes, 54.41%)</title><rect x="21.1" y="949" width="642.1" height="15.0" fill="rgb(242,171,41)" rx="2" ry="2" />
+<text  x="24.10" y="959.5" >spawn.py:90:_wrap</text>
+</g>
+<g >
+<title>??:0:__libc_init_first (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="757" width="89.9" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="24.10" y="767.5" >??:0:__lib..</text>
+</g>
+<g >
+<title>:0:at::TensorBase at::detail::_empty_strided_generic&lt;c10::ArrayRef&lt;long&gt; &gt;(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="421" width="85.4" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="113.97" y="431.5" >:0:at::Ten..</text>
+</g>
+<g >
+<title>??:0:method_vectorcall.llvm.15250018500215577294 (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="741" width="116.2" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="199.40" y="751.5" >??:0:method_ve..</text>
+</g>
+<g >
+<title>VariableType_3.cpp:0:torch::autograd::VariableType::(anonymous namespace)::bmm(c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="229" width="116.2" height="15.0" fill="rgb(236,142,34)" rx="2" ry="2" />
+<text  x="199.40" y="239.5" >VariableType_3..</text>
+</g>
+<g >
+<title>modeling_llama.py:889:forward (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="565" width="116.2" height="15.0" fill="rgb(242,170,40)" rx="2" ry="2" />
+<text  x="199.40" y="575.5" >modeling_llama..</text>
+</g>
+<g >
+<title>??:0:cfunction_call (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="757" width="175.3" height="15.0" fill="rgb(205,1,0)" rx="2" ry="2" />
+<text  x="490.86" y="767.5" >??:0:cfunction_call</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:at::(anonymous namespace)::(anonymous namespace)::wrapper_CUDA__empty_strided(c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="501" width="85.4" height="15.0" fill="rgb(211,31,7)" rx="2" ry="2" />
+<text  x="113.97" y="511.5" >RegisterCU..</text>
+</g>
+<g >
+<title>??:0:at::_ops::mm::call(at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="869" width="116.1" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="666.15" y="879.5" >??:0:at::_ops:..</text>
+</g>
+<g >
+<title>??:0:slot_tp_call (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="613" width="116.2" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="199.40" y="623.5" >??:0:slot_tp_c..</text>
+</g>
+<g >
+<title>??:0:at::native::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="533" width="175.3" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="490.86" y="543.5" >??:0:at::native::empty..</text>
+</g>
+<g >
+<title>??:0:type_call (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="597" width="89.9" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="24.10" y="607.5" >??:0:type_..</text>
+</g>
+<g >
+<title>??:0:run_mod.llvm.40007502541437336 (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="773" width="85.4" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="113.97" y="783.5" >??:0:run_m..</text>
+</g>
+<g >
+<title>modeling_llama.py:1163:forward (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="661" width="116.2" height="15.0" fill="rgb(222,80,19)" rx="2" ry="2" />
+<text  x="199.40" y="671.5" >modeling_llama..</text>
+</g>
+<g >
+<title>??:0:method_vectorcall.llvm.15250018500215577294 (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="773" width="116.2" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="199.40" y="783.5" >??:0:method_ve..</text>
+</g>
+<g >
+<title>:0:void at::cuda::blas::gemm&lt;float&gt;(char, char, long, long, long, at::OpMathType&lt;float&gt;::type, float const*, long, float const*, long, at::OpMathType&lt;float&gt;::type, float*, long) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="133" width="116.2" height="15.0" fill="rgb(238,153,36)" rx="2" ry="2" />
+<text  x="199.40" y="143.5" >:0:void at::cu..</text>
+</g>
+<g >
+<title>??:0:slot_nb_matrix_multiply (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="405" width="116.2" height="15.0" fill="rgb(240,163,39)" rx="2" ry="2" />
+<text  x="199.40" y="415.5" >??:0:slot_nb_m..</text>
+</g>
+<g >
+<title>:0:void at::cuda::blas::gemm_internal_cublas&lt;float&gt;(char, char, long, long, long, at::OpMathType&lt;float&gt;::type, float const*, long, float const*, long, at::OpMathType&lt;float&gt;::type, float*, long) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="117" width="116.2" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="199.40" y="127.5" >:0:void at::cu..</text>
+</g>
+<g >
+<title>CUDACachingAllocator.cpp:0:c10::cuda::CUDACachingAllocator::Native::DeviceCachingAllocator::malloc(signed char, unsigned long, CUstream_st*) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="645" width="116.1" height="15.0" fill="rgb(236,146,35)" rx="2" ry="2" />
+<text  x="666.15" y="655.5" >CUDACachingAll..</text>
+</g>
+<g >
+<title>CUDACachingAllocator.cpp:0:c10::cuda::CUDACachingAllocator::Native::DeviceCachingAllocator::malloc(signed char, unsigned long, CUstream_st*) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="421" width="175.3" height="15.0" fill="rgb(236,146,35)" rx="2" ry="2" />
+<text  x="315.57" y="431.5" >CUDACachingAllocator.c..</text>
+</g>
+<g >
+<title>??:0:method_vectorcall_VARARGS_KEYWORDS.llvm.18141650521498949271 (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="549" width="89.9" height="15.0" fill="rgb(238,151,36)" rx="2" ry="2" />
+<text  x="24.10" y="559.5" >??:0:metho..</text>
+</g>
+<g >
+<title>VariableType_1.cpp:0:torch::autograd::VariableType::(anonymous namespace)::clone(c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="629" width="85.4" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="113.97" y="639.5" >VariableTy..</text>
+</g>
+<g >
+<title>VariableType_3.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;), &amp;torch::autograd::VariableType::(anonymous namespace)::bmm&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;&gt; &gt;, at::Tensor (c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="245" width="116.2" height="15.0" fill="rgb(210,25,6)" rx="2" ry="2" />
+<text  x="199.40" y="255.5" >VariableType_3..</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (at::Tensor const&amp;, at::Tensor const&amp;), &amp;at::(anonymous namespace)::wrapper_CUDA_mm&gt;, at::Tensor, c10::guts::typelist::typelist&lt;at::Tensor const&amp;, at::Tensor const&amp;&gt; &gt;, at::Tensor (at::Tensor const&amp;, at::Tensor const&amp;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="805" width="116.1" height="15.0" fill="rgb(229,111,26)" rx="2" ry="2" />
+<text  x="666.15" y="815.5" >RegisterCUDA.c..</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_generic(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="437" width="85.4" height="15.0" fill="rgb(220,71,17)" rx="2" ry="2" />
+<text  x="113.97" y="447.5" >??:0:at::d..</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (at::Tensor const&amp;, at::Tensor const&amp;), &amp;at::(anonymous namespace)::wrapper_CUDA_bmm&gt;, at::Tensor, c10::guts::typelist::typelist&lt;at::Tensor const&amp;, at::Tensor const&amp;&gt; &gt;, at::Tensor (at::Tensor const&amp;, at::Tensor const&amp;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="197" width="116.2" height="15.0" fill="rgb(246,189,45)" rx="2" ry="2" />
+<text  x="199.40" y="207.5" >RegisterCUDA.c..</text>
+</g>
+<g >
+<title>wrap.py:545:_recursive_wrap (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="853" width="89.9" height="15.0" fill="rgb(246,192,45)" rx="2" ry="2" />
+<text  x="24.10" y="863.5" >wrap.py:54..</text>
+</g>
+<g >
+<title>CUDACachingAllocator.cpp:0:c10::cuda::CUDACachingAllocator::Native::DeviceCachingAllocator::malloc(signed char, unsigned long, CUstream_st*) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="37" width="116.2" height="15.0" fill="rgb(236,146,35)" rx="2" ry="2" />
+<text  x="199.40" y="47.5" >CUDACachingAll..</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::malloc(void**, signed char, unsigned long, CUstream_st*) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="437" width="175.3" height="15.0" fill="rgb(252,216,51)" rx="2" ry="2" />
+<text  x="315.57" y="447.5" >:0:c10::cuda::CUDACach..</text>
+</g>
+<g >
+<title>??:0:at::native::empty_strided_cuda(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="533" width="175.3" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="315.57" y="543.5" >??:0:at::native::empty..</text>
+</g>
+<g >
+<title>spawn.py:122:spawn_main (185,449,312 bytes, 54.41%)</title><rect x="21.1" y="1013" width="642.1" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="24.10" y="1023.5" >spawn.py:122:spawn_main</text>
+</g>
+<g >
+<title>??:0:type_call (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="645" width="89.9" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="24.10" y="655.5" >??:0:type_..</text>
+</g>
+<g >
+<title>optimizer.py:487:wrapper (101,263,104 bytes, 29.71%)</title><rect x="312.6" y="917" width="350.6" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="315.57" y="927.5" >optimizer.py:487:wrapper</text>
+</g>
+<g >
+<title>fully_sharded_data_parallel.py:509:__init__ (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="917" width="85.4" height="15.0" fill="rgb(207,13,3)" rx="2" ry="2" />
+<text  x="113.97" y="927.5" >fully_shar..</text>
+</g>
+<g >
+<title>python_torch_functions_0.cpp:0:torch::autograd::THPVariable_zeros_like(_object*, _object*, _object*) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="741" width="175.3" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="315.57" y="751.5" >python_torch_functions..</text>
+</g>
+<g >
+<title>??:0:PyRun_SimpleStringFlags (101,263,104 bytes, 29.71%)</title><rect x="312.6" y="805" width="350.6" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="315.57" y="815.5" >??:0:PyRun_SimpleStringFlags</text>
+</g>
+<g >
+<title>??:0:at::_ops::clone::call(at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="661" width="85.4" height="15.0" fill="rgb(251,211,50)" rx="2" ry="2" />
+<text  x="113.97" y="671.5" >??:0:at::_..</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::allocate(unsigned long) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="405" width="85.4" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="113.97" y="415.5" >:0:c10::cu..</text>
+</g>
+<g >
+<title>??:0:at::_ops::zeros_like::call(at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="725" width="175.3" height="15.0" fill="rgb(231,119,28)" rx="2" ry="2" />
+<text  x="315.57" y="735.5" >??:0:at::_ops::zeros_l..</text>
+</g>
+<g >
+<title>:0:at::TensorBase at::detail::_empty_strided_generic&lt;c10::ArrayRef&lt;long&gt; &gt;(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="277" width="89.9" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="24.10" y="287.5" >:0:at::Ten..</text>
+</g>
+<g >
+<title>VariableType_1.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;), &amp;torch::autograd::VariableType::(anonymous namespace)::clone&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt; &gt; &gt;, at::Tensor (c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="501" width="89.9" height="15.0" fill="rgb(251,216,51)" rx="2" ry="2" />
+<text  x="24.10" y="511.5" >VariableTy..</text>
+</g>
+<g >
+<title>module.py:1747:_call_impl (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="501" width="116.2" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="199.40" y="511.5" >module.py:1747..</text>
+</g>
+<g >
+<title>??:0:Py_BytesMain (101,263,104 bytes, 29.71%)</title><rect x="312.6" y="853" width="350.6" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="315.57" y="863.5" >??:0:Py_BytesMain</text>
+</g>
+<g >
+<title>??:0:Py_RunMain (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="805" width="85.4" height="15.0" fill="rgb(219,64,15)" rx="2" ry="2" />
+<text  x="113.97" y="815.5" >??:0:Py_Ru..</text>
+</g>
+<g >
+<title>??:0:at::_ops::empty_strided::call(c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="613" width="175.3" height="15.0" fill="rgb(220,73,17)" rx="2" ry="2" />
+<text  x="490.86" y="623.5" >??:0:at::_ops::empty_s..</text>
+</g>
+<g >
+<title>RegisterCompositeExplicitAutograd.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;), &amp;at::(anonymous namespace)::(anonymous namespace)::wrapper_CompositeExplicitAutograd__zeros_like&gt;, at::Tensor, c10::guts::typelist::typelist&lt;at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt; &gt; &gt;, at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="709" width="175.3" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="315.57" y="719.5" >RegisterCompositeExpli..</text>
+</g>
+<g >
+<title>??:0:run_mod.llvm.40007502541437336 (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="837" width="116.2" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="199.40" y="847.5" >??:0:run_mod.l..</text>
+</g>
+<g >
+<title>??:0:at::native::empty_like(at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="629" width="175.3" height="15.0" fill="rgb(235,139,33)" rx="2" ry="2" />
+<text  x="490.86" y="639.5" >??:0:at::native::empty..</text>
+</g>
+<g >
+<title>??:0:pymain_main (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="725" width="89.9" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="24.10" y="735.5" >??:0:pymai..</text>
+</g>
+<g >
+<title>spawn.py:135:_main (185,449,312 bytes, 54.41%)</title><rect x="21.1" y="997" width="642.1" height="15.0" fill="rgb(217,59,14)" rx="2" ry="2" />
+<text  x="24.10" y="1007.5" >spawn.py:135:_main</text>
+</g>
+<g >
+<title>??:0:PyRun_SimpleStringFlags (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="789" width="85.4" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="113.97" y="799.5" >??:0:PyRun..</text>
+</g>
+<g >
+<title>??:0:at::native::zeros_like(at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="693" width="175.3" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="315.57" y="703.5" >??:0:at::native::zeros..</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::malloc(void**, signed char, unsigned long, CUstream_st*) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="53" width="116.2" height="15.0" fill="rgb(252,216,51)" rx="2" ry="2" />
+<text  x="199.40" y="63.5" >:0:c10::cuda::..</text>
+</g>
+<g >
+<title>RegisterBackendSelect.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;), &amp;at::(anonymous namespace)::empty_strided&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt; &gt; &gt;, at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="405" width="89.9" height="15.0" fill="rgb(237,150,36)" rx="2" ry="2" />
+<text  x="24.10" y="415.5" >RegisterBa..</text>
+</g>
+<g >
+<title>:0:void at::cuda::blas::gemm&lt;c10::BFloat16&gt;(char, char, long, long, long, at::OpMathType&lt;c10::BFloat16&gt;::type, c10::BFloat16 const*, long, c10::BFloat16 const*, long, at::OpMathType&lt;c10::BFloat16&gt;::type, c10::BFloat16*, long) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="741" width="116.1" height="15.0" fill="rgb(235,140,33)" rx="2" ry="2" />
+<text  x="666.15" y="751.5" >:0:void at::cu..</text>
+</g>
+<g >
+<title>??:0:at::_ops::bmm::call(at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="261" width="116.2" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="199.40" y="271.5" >??:0:at::_ops:..</text>
+</g>
+<g >
+<title>??:0:at::_ops::zeros_like::call(at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="725" width="175.3" height="15.0" fill="rgb(231,119,28)" rx="2" ry="2" />
+<text  x="490.86" y="735.5" >??:0:at::_ops::zeros_l..</text>
+</g>
+<g >
+<title>??:0:at::cuda::getCurrentCUDABlasHandle() (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="101" width="116.2" height="15.0" fill="rgb(250,208,49)" rx="2" ry="2" />
+<text  x="199.40" y="111.5" >??:0:at::cuda:..</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::malloc(void**, signed char, unsigned long, CUstream_st*) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="437" width="175.3" height="15.0" fill="rgb(252,216,51)" rx="2" ry="2" />
+<text  x="490.86" y="447.5" >:0:c10::cuda::CUDACach..</text>
+</g>
+<g >
+<title>??:0:at::native::structured_mm_out_cuda::impl(at::Tensor const&amp;, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="773" width="116.1" height="15.0" fill="rgb(207,12,2)" rx="2" ry="2" />
+<text  x="666.15" y="783.5" >??:0:at::nativ..</text>
+</g>
+<g >
+<title>??:0:cfunction_call (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="757" width="175.3" height="15.0" fill="rgb(205,1,0)" rx="2" ry="2" />
+<text  x="315.57" y="767.5" >??:0:cfunction_call</text>
+</g>
+<g >
+<title>_init_utils.py:661:_init_param_handle_from_params (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="773" width="89.9" height="15.0" fill="rgb(245,187,44)" rx="2" ry="2" />
+<text  x="24.10" y="783.5" >_init_util..</text>
+</g>
+<g >
+<title>RegisterCompositeExplicitAutograd.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;), &amp;at::(anonymous namespace)::(anonymous namespace)::wrapper_CompositeExplicitAutograd__empty_like&gt;, at::Tensor, c10::guts::typelist::typelist&lt;at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt; &gt; &gt;, at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="645" width="175.3" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="315.57" y="655.5" >RegisterCompositeExpli..</text>
+</g>
+<g >
+<title>python_variable_methods.cpp:0:_object* torch::autograd::TypeError_to_NotImplemented_&lt;&amp;torch::autograd::THPVariable_matmul&gt;(_object*, _object*, _object*) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="357" width="116.2" height="15.0" fill="rgb(232,127,30)" rx="2" ry="2" />
+<text  x="199.40" y="367.5" >python_variabl..</text>
+</g>
+<g >
+<title>&lt;string&gt;:1:&lt;module&gt; (185,449,312 bytes, 54.41%)</title><rect x="21.1" y="1029" width="642.1" height="15.0" fill="rgb(215,48,11)" rx="2" ry="2" />
+<text  x="24.10" y="1039.5" >&lt;string&gt;:1:&lt;module&gt;</text>
+</g>
+<g >
+<title>wrap.py:545:_recursive_wrap (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="869" width="89.9" height="15.0" fill="rgb(246,192,45)" rx="2" ry="2" />
+<text  x="24.10" y="879.5" >wrap.py:54..</text>
+</g>
+<g >
+<title>??:0:method_vectorcall_VARARGS_KEYWORDS.llvm.18141650521498949271 (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="373" width="116.2" height="15.0" fill="rgb(238,151,36)" rx="2" ry="2" />
+<text  x="199.40" y="383.5" >??:0:method_ve..</text>
+</g>
+<g >
+<title>:0:at::TensorBase at::detail::_empty_strided_generic&lt;c10::ArrayRef&lt;long&gt; &gt;(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="469" width="175.3" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="490.86" y="479.5" >:0:at::TensorBase at::..</text>
+</g>
+<g >
+<title>_contextlib.py:116:decorate_context (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="869" width="85.4" height="15.0" fill="rgb(236,146,34)" rx="2" ry="2" />
+<text  x="113.97" y="879.5" >_contextli..</text>
+</g>
+<g >
+<title>module.py:1736:_wrapped_call_impl (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="629" width="116.2" height="15.0" fill="rgb(205,1,0)" rx="2" ry="2" />
+<text  x="199.40" y="639.5" >module.py:1736..</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:at::(anonymous namespace)::wrapper_CUDA_mm(at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="789" width="116.1" height="15.0" fill="rgb(236,144,34)" rx="2" ry="2" />
+<text  x="666.15" y="799.5" >RegisterCUDA.c..</text>
+</g>
+<g >
+<title>??:0:method_vectorcall_VARARGS_KEYWORDS.llvm.18141650521498949271 (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="693" width="85.4" height="15.0" fill="rgb(238,151,36)" rx="2" ry="2" />
+<text  x="113.97" y="703.5" >??:0:metho..</text>
+</g>
+<g >
+<title>module.py:1736:_wrapped_call_impl (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="821" width="116.2" height="15.0" fill="rgb(205,1,0)" rx="2" ry="2" />
+<text  x="199.40" y="831.5" >module.py:1736..</text>
+</g>
+<g >
+<title>_flat_param.py:913:shard (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="757" width="85.4" height="15.0" fill="rgb(246,192,45)" rx="2" ry="2" />
+<text  x="113.97" y="767.5" >_flat_para..</text>
+</g>
+<g >
+<title>LinearAlgebra.cpp:0:at::native::_matmul_impl(at::Tensor&amp;, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="277" width="116.2" height="15.0" fill="rgb(214,45,10)" rx="2" ry="2" />
+<text  x="199.40" y="287.5" >LinearAlgebra...</text>
+</g>
+<g >
+<title>fully_sharded_data_parallel.py:509:__init__ (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="805" width="89.9" height="15.0" fill="rgb(207,13,3)" rx="2" ry="2" />
+<text  x="24.10" y="815.5" >fully_shar..</text>
+</g>
+<g >
+<title>??:0:PyRun_SimpleStringFlags (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="853" width="116.2" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="199.40" y="863.5" >??:0:PyRun_Sim..</text>
+</g>
+<g >
+<title>RegisterBackendSelect.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;), &amp;at::(anonymous namespace)::empty_strided&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt; &gt; &gt;, at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="597" width="175.3" height="15.0" fill="rgb(237,150,36)" rx="2" ry="2" />
+<text  x="315.57" y="607.5" >RegisterBackendSelect...</text>
+</g>
+<g >
+<title>??:0:at::detail::empty_strided_generic(c10::ArrayRef&lt;long&gt;, c10::ArrayRef&lt;long&gt;, c10::Allocator*, c10::DispatchKeySet, c10::ScalarType) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="485" width="175.3" height="15.0" fill="rgb(220,71,17)" rx="2" ry="2" />
+<text  x="490.86" y="495.5" >??:0:at::detail::empty..</text>
+</g>
+<g >
+<title>??:0:at::_ops::mm::redispatch(c10::DispatchKeySet, at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="821" width="116.1" height="15.0" fill="rgb(217,58,13)" rx="2" ry="2" />
+<text  x="666.15" y="831.5" >??:0:at::_ops:..</text>
+</g>
+<g >
+<title>RegisterBackendSelect.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;), &amp;at::(anonymous namespace)::empty_strided&gt;, at::Tensor, c10::guts::typelist::typelist&lt;c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt; &gt; &gt;, at::Tensor (c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, c10::ArrayRef&lt;c10::SymInt&gt;, c10::ArrayRef&lt;c10::SymInt&gt;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="549" width="85.4" height="15.0" fill="rgb(237,150,36)" rx="2" ry="2" />
+<text  x="113.97" y="559.5" >RegisterBa..</text>
+</g>
+<g >
+<title>??:0:torch::autograd::Engine::thread_main(std::shared_ptr&lt;torch::autograd::GraphTask&gt; const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="949" width="116.1" height="15.0" fill="rgb(209,21,5)" rx="2" ry="2" />
+<text  x="666.15" y="959.5" >??:0:torch::au..</text>
+</g>
+<g >
+<title>??:0:torch::autograd::Engine::evaluate_function(std::shared_ptr&lt;torch::autograd::GraphTask&gt;&amp;, torch::autograd::Node*, torch::autograd::InputBuffer&amp;, std::shared_ptr&lt;torch::autograd::ReadyQueue&gt; const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="933" width="116.1" height="15.0" fill="rgb(205,1,0)" rx="2" ry="2" />
+<text  x="666.15" y="943.5" >??:0:torch::au..</text>
+</g>
+<g >
+<title>_contextlib.py:116:decorate_context (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="661" width="89.9" height="15.0" fill="rgb(236,146,34)" rx="2" ry="2" />
+<text  x="24.10" y="671.5" >_contextli..</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::allocate(unsigned long) (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="453" width="175.3" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="315.57" y="463.5" >:0:c10::cuda::CUDACach..</text>
+</g>
+<g >
+<title>active_allocated (222,211,072 bytes, 65.20%)</title><rect x="10.0" y="1045" width="769.3" height="15.0" fill="rgb(238,153,36)" rx="2" ry="2" />
+<text  x="13.00" y="1055.5" >active_allocated</text>
+</g>
+<g >
+<title>adam.py:153:_init_group (50,631,552 bytes, 14.86%)</title><rect x="312.6" y="773" width="175.3" height="15.0" fill="rgb(228,106,25)" rx="2" ry="2" />
+<text  x="315.57" y="783.5" >adam.py:153:_init_group</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::allocate(unsigned long) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="453" width="175.3" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="490.86" y="463.5" >:0:c10::cuda::CUDACach..</text>
+</g>
+<g >
+<title>:0:torch::autograd::Node::operator()(std::vector&lt;at::Tensor, std::allocator&lt;at::Tensor&gt; &gt;&amp;&amp;) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="917" width="116.1" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="666.15" y="927.5" >:0:torch::auto..</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::allocate(unsigned long) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="69" width="116.2" height="15.0" fill="rgb(244,181,43)" rx="2" ry="2" />
+<text  x="199.40" y="79.5" >:0:c10::cuda::..</text>
+</g>
+<g >
+<title>:0:c10::cuda::CUDACachingAllocator::Native::NativeCachingAllocator::malloc(void**, signed char, unsigned long, CUstream_st*) (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="245" width="89.9" height="15.0" fill="rgb(252,216,51)" rx="2" ry="2" />
+<text  x="24.10" y="255.5" >:0:c10::cu..</text>
+</g>
+<g >
+<title>module.py:1736:_wrapped_call_impl (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="725" width="116.2" height="15.0" fill="rgb(205,1,0)" rx="2" ry="2" />
+<text  x="199.40" y="735.5" >module.py:1736..</text>
+</g>
+<g >
+<title>??:0:torch::autograd::Engine::thread_init(int, std::shared_ptr&lt;torch::autograd::ReadyQueue&gt; const&amp;, bool) (33,554,432 bytes, 9.84%)</title><rect x="663.2" y="965" width="116.1" height="15.0" fill="rgb(222,78,18)" rx="2" ry="2" />
+<text  x="666.15" y="975.5" >??:0:torch::au..</text>
+</g>
+<g >
+<title>fully_sharded_data_parallel.py:483:__init__ (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="917" width="89.9" height="15.0" fill="rgb(251,213,51)" rx="2" ry="2" />
+<text  x="24.10" y="927.5" >fully_shar..</text>
+</g>
+<g >
+<title>??:0:pymain_main (101,263,104 bytes, 29.71%)</title><rect x="312.6" y="837" width="350.6" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="315.57" y="847.5" >??:0:pymain_main</text>
+</g>
+<g >
+<title>??:0:at::_ops::clone::redispatch(c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::MemoryFormat&gt;) (24,674,688 bytes, 7.24%)</title><rect x="111.0" y="613" width="85.4" height="15.0" fill="rgb(211,29,7)" rx="2" ry="2" />
+<text  x="113.97" y="623.5" >??:0:at::_..</text>
+</g>
+<g >
+<title>adam.py:157:_init_group (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="773" width="175.3" height="15.0" fill="rgb(252,217,52)" rx="2" ry="2" />
+<text  x="490.86" y="783.5" >adam.py:157:_init_group</text>
+</g>
+<g >
+<title>??:0:at::native::zeros_like(at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="693" width="175.3" height="15.0" fill="rgb(209,20,4)" rx="2" ry="2" />
+<text  x="490.86" y="703.5" >??:0:at::native::zeros..</text>
+</g>
+<g >
+<title>_flat_param.py:913:shard (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="613" width="89.9" height="15.0" fill="rgb(246,192,45)" rx="2" ry="2" />
+<text  x="24.10" y="623.5" >_flat_para..</text>
+</g>
+<g >
+<title>fully_sharded_data_parallel.py:864:forward (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="757" width="116.2" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="199.40" y="767.5" >fully_sharded_..</text>
+</g>
+<g >
+<title>??:0:Py_BytesMain (25,956,864 bytes, 7.62%)</title><rect x="21.1" y="741" width="89.9" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="24.10" y="751.5" >??:0:Py_By..</text>
+</g>
+<g >
+<title>RegisterCUDA.cpp:0:at::(anonymous namespace)::wrapper_CUDA_bmm(at::Tensor const&amp;, at::Tensor const&amp;) (33,554,432 bytes, 9.84%)</title><rect x="196.4" y="181" width="116.2" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="199.40" y="191.5" >RegisterCUDA.c..</text>
+</g>
+<g >
+<title>RegisterCompositeExplicitAutograd.cpp:0:c10::impl::wrap_kernel_functor_unboxed_&lt;c10::impl::detail::WrapFunctionIntoFunctor_&lt;c10::CompileTimeFunctionPointer&lt;at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;), &amp;at::(anonymous namespace)::(anonymous namespace)::wrapper_CompositeExplicitAutograd__empty_like&gt;, at::Tensor, c10::guts::typelist::typelist&lt;at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt; &gt; &gt;, at::Tensor (at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;)&gt;::call(c10::OperatorKernel*, c10::DispatchKeySet, at::Tensor const&amp;, std::optional&lt;c10::ScalarType&gt;, std::optional&lt;c10::Layout&gt;, std::optional&lt;c10::Device&gt;, std::optional&lt;bool&gt;, std::optional&lt;c10::MemoryFormat&gt;) (50,631,552 bytes, 14.86%)</title><rect x="487.9" y="645" width="175.3" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="490.86" y="655.5" >RegisterCompositeExpli..</text>
+</g>
+</g>
+</svg>
