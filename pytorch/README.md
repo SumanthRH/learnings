@@ -16,6 +16,8 @@
 - Understanding CUDA Memory Usage:  https://pytorch.org/docs/stable/torch_cuda_memory.html 
 - Memory management: https://pytorch.org/docs/stable/notes/cuda.html#cuda-memory-management 
 - Autograd mechanics: https://pytorch.org/docs/stable/notes/autograd.html
+- Pytorch memory snapshot tool: https://zdevito.github.io/2022/08/16/memory-snapshots.html 
+    - Beyond the official guide from pytorch on this, this blog also highlights some other ways to visualize memory usage with helper scripts from torch. I find the summarized flame graph to be the most useful. 
 
 ## FSDP v1
 - FSDP v1:  https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes  
