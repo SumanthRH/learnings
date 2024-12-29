@@ -3,6 +3,7 @@
 ## Table of Contents
 - [Helpful links](#helpful-links)
 - [FSDP v1](#fsdp-v1)
+    - [Memory Profiling](#memory-profiling)
     - [Mixed Precision](#mixed-precision)
     - [Auto Wrap Policy](#auto-wrap-policy)
     - [State Dict Management](#state-dict-management)
@@ -20,6 +21,12 @@
 - FSDP v1:  https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes  
 
 At the heart of FSDP v1 is `FlatParameter` abstraction: this is an atomic unit of communication in FSDP. Each module wrapped in `FullyShardedDataParallel` class (“FSDP”) will have all its parameters combined into one “flat parameter” by FSDP . A single `FlatParameter` is communicated at once during forward/backward pass. Sharded tensors are represented with the `ShardedTensor` API. Note that nesting is allowed i.e you can wrap your entire model in FSDP while also wrapping inner blocks in FSDP, meaning that you can set the granularity for communication. This can also allow FSDP to overlap communication with computation.
+
+### Memory Profiling
+
+For a minimal example of FSDP see [fsdp_v1.py](./fsdp_v1.py)
+
+For understanding how to profile memory usage, see [memory_snapshot.md](./fsdp/memory_snapshot.md)
 
 ### Mixed Precision
 
