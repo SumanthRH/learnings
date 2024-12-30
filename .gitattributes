@@ -1,0 +1,2 @@
+# exclude ipynb files in stats
+**/*.ipynb linguist-documentation
