@@ -36,12 +36,7 @@ def get_size_policy(min_params=1e8):
     )
     return num_wrap_policy
 
-
-def get_transformer_wrapper(model):
-    """we register our main layer class and use the fsdp transformer wrapping policy
-    ensures embedding layers are in the root fsdp unit for shared access and that fsdp units map to transformer layers
-    """
-    # ====   use new transformer wrapper
+def get_transformer_cls_to_wrap(model):
     no_split_modules = getattr(model, "_no_split_modules", None)
     default_transformer_cls_names_to_wrap = (
         list(no_split_modules) if no_split_modules is not None else []
@@ -58,6 +53,14 @@ def get_transformer_wrapper(model):
                 f"Could not find the transformer layer class {layer_class} in the model."
             )
         transformer_cls_to_wrap.add(transformer_cls)
+    return transformer_cls_to_wrap
+
+def get_transformer_wrapper(model):
+    """we register our main layer class and use the fsdp transformer wrapping policy
+    ensures embedding layers are in the root fsdp unit for shared access and that fsdp units map to transformer layers
+    """
+    # ====   use new transformer wrapper
+    transformer_cls_to_wrap = get_transformer_cls_to_wrap(model)
     print(f"Wrapping {transformer_cls_to_wrap}")
     t5_auto_wrap_policy = functools.partial(
         transformer_auto_wrap_policy,
