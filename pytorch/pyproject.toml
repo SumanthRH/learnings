@@ -4,14 +4,5 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-    "accelerate>=1.2.1",
-    "psutil>=6.1.1",
-    "ray>=2.40.0",
-    "transformers>=4.47.1",
-]
-# override torch dependency to be empty. This is to allow user specified torch versions to be installed, for example nightly torch versions 
-[tool.uv]
-override-dependencies = [
-    "torch; sys_platform == 'never'",
-]
+# uv + pytorch nightly is a nightmare, just use requirements.txt
+
