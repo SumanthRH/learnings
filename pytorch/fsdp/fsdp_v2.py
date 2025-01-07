@@ -129,6 +129,7 @@ def run_fsdp_example(rank, world_size, args):
             optimizer.zero_grad()
             # clear activation state
             torch.cuda.empty_cache()
+        cuda_info = torch.cuda.memory_stats("cuda")
         max_active = cuda_info["active_bytes.all.peak"]
         max_reserved = cuda_info["reserved_bytes.all.peak"]
         if rank == 0:

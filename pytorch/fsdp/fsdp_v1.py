@@ -11,7 +11,7 @@ import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 import torch.multiprocessing as mp
 import torch.nn as nn
-from policies import get_policies
+from policies import get_policies_v1
 from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 from torch.distributed.checkpoint.stateful import Stateful
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -97,7 +97,7 @@ def run_fsdp_example(rank, world_size, args):
                 args.model_id, low_cpu_mem_usage=True
             )
 
-            mixed_precision_policy, wrapping_policy = get_policies(args, model, rank)
+            mixed_precision_policy, wrapping_policy = get_policies_v1(args, model, rank)
             if rank == 0:
                 print(mixed_precision_policy)
             model = FSDP(
@@ -129,6 +129,11 @@ def run_fsdp_example(rank, world_size, args):
             optimizer.zero_grad()
             # clear activation state
             torch.cuda.empty_cache()
+        cuda_info = torch.cuda.memory_stats("cuda")
+        max_active = cuda_info["active_bytes.all.peak"]
+        max_reserved = cuda_info["reserved_bytes.all.peak"]
+        if rank == 0:
+            print("Peak Memory (active, reserved)", (max_active, max_reserved))
 
     snapshot = torch.cuda.memory._snapshot()
     with open(f"{args.checkpoint_dir}/snapshot_{rank}.pkl", "wb") as f:

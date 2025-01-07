@@ -99,6 +99,5 @@ https://github.com/huggingface/accelerate/issues/2100#issuecomment-1822330625
 - FSDP v2 API changes(GA in 2.6.0): https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md 
 - FSDP 2 RFC in `accelerate` : https://github.com/huggingface/accelerate/pull/3231
 
-
 ## DCP 
 - Basic tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html 
