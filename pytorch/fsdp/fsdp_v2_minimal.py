@@ -99,7 +99,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mixed_precision", action="store_true", help="Use mixed precision"
     )
-    parser.add_argument("--use_fp16", action="store_true", help="Use FP16")
     parser.add_argument(
         "--num_devices", type=int, default=torch.cuda.device_count(), help="World size"
     )
