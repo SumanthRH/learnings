@@ -26,29 +26,6 @@ MODEL_ID = "BEE-spoke-data/smol_llama-101M-GQA"
 CHECKPOINT_DIR = "/mnt/local_nvme/sumanth/test_out/checkpoint_v2"
 MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT = 100000
 
-class ToyModel(nn.Module):
-    def __init__(self):
-        super(ToyModel, self).__init__()
-        self.net1 = nn.Linear(16, 16)
-        self.relu = nn.ReLU()
-        self.net2 = nn.Linear(16, 8)
-
-    def forward(self, x):
-        return self.net2(self.relu(self.net1(x)))
-    
-def setup(rank, world_size, use_ray=False):
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "12355 "
-
-    # initialize the process group
-    dist.init_process_group("cpu:gloo,cuda:nccl", rank=rank, world_size=world_size)
-    if not use_ray:
-        torch.cuda.set_device(rank)
-
-def cleanup():
-    dist.destroy_process_group()
-
-
 def get_reshard_after_forward(sharding_strategy):
     if sharding_strategy == "FULL_SHARD":
         return True
