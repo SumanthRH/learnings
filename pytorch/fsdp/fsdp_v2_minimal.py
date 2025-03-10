@@ -7,7 +7,7 @@ from contextlib import nullcontext
 import psutil
 import ray
 from ray import train
-from ray.train import TorchTrainer
+from ray.train.torch import TorchTrainer
 import torch
 import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
@@ -38,7 +38,7 @@ def get_reshard_after_forward(sharding_strategy):
 def run_fsdp_example(config):
     args = config["args"]
     world_size = ray.train.get_context().get_world_size()
-    rank = ray.train.get_context().get_global_rank()
+    rank = ray.train.get_context().get_world_rank()
 
     reshard_after_forward = get_reshard_after_forward(args.sharding_strategy)
     # create a model and move it to GPU with id rank
@@ -63,12 +63,17 @@ def run_fsdp_example(config):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
 
-
-    model(
+    # dummy loss
+    loss = model(
         input_ids=torch.randint(0, 100, (1, 16), device="cuda")
-    ).logits.mean().backward()
+    ).logits.mean()
+    # backward pass
+    loss.backward()
+
     optimizer.step()
     optimizer.zero_grad()
+
+    train.report({"loss": loss.detach().float().cpu().numpy()})
 
 
 if __name__ == "__main__":
@@ -80,6 +85,7 @@ if __name__ == "__main__":
         "--num_devices", type=int, default=torch.cuda.device_count(), help="World size"
     )
     parser.add_argument("--model_id", type=str, default=MODEL_ID, help="Model id")
+    parser.add_argument("--use_fp16", action="store_true")
     parser.add_argument(
         "--sharding_strategy",
         type=str,
